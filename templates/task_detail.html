@@ -241,16 +241,28 @@ function viewLog() {
         .then(data => {
             if (data.status === 'success') {
                 document.getElementById('logContent').textContent = data.data || '日志为空';
-                // 滚动到底部以显示最新日志
-                const logContent = document.getElementById('logContent');
-                logContent.scrollTop = logContent.scrollHeight;
+                // 使用setTimeout确保在DOM更新后再滚动到底部
+                setTimeout(() => {
+                    const logContent = document.getElementById('logContent');
+                    logContent.scrollTop = logContent.scrollHeight;
+                }, 0);
             } else {
                 document.getElementById('logContent').textContent = '获取日志失败: ' + data.message;
+                // 即使失败也确保滚动条在底部
+                setTimeout(() => {
+                    const logContent = document.getElementById('logContent');
+                    logContent.scrollTop = logContent.scrollHeight;
+                }, 0);
             }
         })
         .catch(error => {
             console.error('Error:', error);
             document.getElementById('logContent').textContent = '获取日志过程中发生错误: ' + error.message;
+            // 即使出错也确保滚动条在底部
+            setTimeout(() => {
+                const logContent = document.getElementById('logContent');
+                logContent.scrollTop = logContent.scrollHeight;
+                }, 0);
         })
         .finally(() => {
             // 恢复刷新按钮状态
