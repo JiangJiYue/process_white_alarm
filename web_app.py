@@ -18,7 +18,6 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 
 # 导入现有模块
-from ollama_client import OllamaClient, create_ollama_client_from_config
 from process_white_alarm import process_row, is_valid_path
 
 def load_config():
@@ -348,9 +347,6 @@ def process_task_async(task_id, max_rows_override=None):
             else:
                 task['processed_rows'] = total_rows
         
-        # 初始化Ollama客户端
-        # ollama_client = create_ollama_client_from_config(config, logger=task_logger)
-        
         # 设置日志文件
         log_dir = config.get('logging', {}).get('log_dir', 'logs')
         os.makedirs(log_dir, exist_ok=True)
@@ -398,8 +394,8 @@ def process_task_async(task_id, max_rows_override=None):
         
         # 移除现有的处理器
         for handler in task_logger.handlers[:]:
-            task_logger.removeHandler(handler)
             handler.close()
+            task_logger.removeHandler(handler)
         
         # 添加新的处理器
         # 使用 RotatingFileHandler 实现日志轮转
@@ -418,7 +414,7 @@ def process_task_async(task_id, max_rows_override=None):
         task_logger.addHandler(console_handler)
         
         # 立即写入一条日志，确保文件不为空
-        task_logger.info(f"开始处理任务 {task_id}")
+        task_logger.info(f"[序号{int(task_id.split('_')[1])}] 开始处理任务 {task_id}")
         
         # 创建任务日志适配器工厂，用于传递给 process_white_alarm 模块
         def task_logger_factory(task_id):
@@ -450,17 +446,17 @@ def process_task_async(task_id, max_rows_override=None):
                     for output in result["outputs"]:
                         raw_path = output["原始路径"]
                         is_valid = is_valid_path(raw_path, allow_filename_only=True)
-                        task_logger.debug(f"路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
+                        task_logger.debug(f"[序号{int(task_id.split('_')[1])}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
                         else:
                             invalid_records.append(output)
-                            task_logger.debug(f"添加无效记录: {repr(raw_path)}")
+                            task_logger.debug(f"[序号{int(task_id.split('_')[1])}] 添加无效记录: {repr(raw_path)}")
                 
                 # 更新进度
                 update_task_progress(task_id, idx + 1, total_rows, 'processing')
             except Exception as e:
-                task_logger.error(f"处理行 {idx} 时出错: {e}", exc_info=True)
+                task_logger.error(f"[序号{int(task_id.split('_')[1])}] 处理行 {idx} 时出错: {e}", exc_info=True)
                 invalid_records.append({
                     "序号": idx + 1,
                     "原始路径": f"<处理出错: {str(e)}>",
@@ -495,7 +491,6 @@ def process_task_async(task_id, max_rows_override=None):
         # 记录任务完成日志
         task_logger.info(f"任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
         
-        # 添加类似于 main() 函数中的日志记录
         if invalid_records:
             task_logger.info(f"💾 已保存 {len(invalid_records)} 条无效记录到 {os.path.join(output_dir, 'invalid_records.xlsx')}")
         
@@ -658,8 +653,7 @@ def api_process():
             'output_dir': None
         }
         
-        # 这里应该实际处理任务，但为了简化示例，我们模拟处理
-        # 在实际应用中，这里应该调用实际的处理逻辑
+      
         tasks[task_id]['status'] = 'completed'
         tasks[task_id]['completed_at'] = datetime.now().isoformat()
         tasks[task_id]['valid_count'] = 0
@@ -720,7 +714,7 @@ def get_task_log(task_id):
     config = load_config()
     log_dir = config.get('logging', {}).get('log_dir', 'logs')
     
-    # 查找匹配的任务日志文件（使用新的命名规范）
+    # 查找匹配的任务日志文件
     log_filename = None
     if os.path.exists(log_dir):
         for filename in os.listdir(log_dir):
@@ -728,9 +722,7 @@ def get_task_log(task_id):
                 log_filename = filename
                 break
     
-    # 如果没找到特定格式的日志文件，尝试查找旧格式的日志文件
-    if log_filename is None:
-        log_filename = f"task_{task_id}.log"
+
     
     log_filepath = os.path.join(log_dir, log_filename)
     
