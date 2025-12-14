@@ -27,12 +27,15 @@
                     {% endif %}
                     </span>
                 </p>
-                <p><strong>创建时间:</strong> {{ task.created_at }}</p>
+                <p><strong>创建时间:</strong> <span class="formatted-time">{{ task.created_at }}</span></p>
                 {% if task.started_at %}
-                <p><strong>开始时间:</strong> <span id="started-at">{{ task.started_at }}</span></p>
+                <p><strong>开始时间:</strong> <span id="started-at" class="formatted-time">{{ task.started_at }}</span></p>
                 {% endif %}
                 {% if task.completed_at %}
-                <p><strong>完成时间:</strong> {{ task.completed_at }}</p>
+                <p><strong>完成时间:</strong> <span class="formatted-time">{{ task.completed_at }}</span></p>
+                {% endif %}
+                {% if task.started_at and task.completed_at %}
+                <p><strong>总用时:</strong> {{ task.completed_at | duration_format(task.started_at) }}</p>
                 {% endif %}
                 {% if task.total_rows %}
                 <p><strong>总行数:</strong> {{ task.total_rows }}</p>
@@ -113,6 +116,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="viewLog()">刷新</button>
             </div>
         </div>
     </div>
@@ -121,6 +125,52 @@
 
 {% block scripts %}
 <script>
+// 时间格式化函数
+function formatTime(isoTimeString) {
+    if (!isoTimeString) return '';
+    const date = new Date(isoTimeString);
+    return date.getFullYear() + '-' + 
+           String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+           String(date.getDate()).padStart(2, '0') + ' ' + 
+           String(date.getHours()).padStart(2, '0') + ':' + 
+           String(date.getMinutes()).padStart(2, '0') + ':' + 
+           String(date.getSeconds()).padStart(2, '0');
+}
+
+// 格式化页面上的所有时间
+document.addEventListener('DOMContentLoaded', function() {
+    const timeElements = document.querySelectorAll('.formatted-time');
+    timeElements.forEach(element => {
+        const isoTime = element.textContent;
+        if (isoTime) {
+            element.textContent = formatTime(isoTime);
+        }
+    });
+    
+    // 计算并显示总用时
+    const startedAtElement = document.getElementById('started-at');
+    const durationElement = document.getElementById('duration');
+    if (startedAtElement && durationElement) {
+        const startedAtText = startedAtElement.textContent;
+        const completedAtText = document.querySelector('.formatted-time:nth-child(2)').textContent; // 假设完成时间是第二个格式化时间元素
+        
+        if (startedAtText && completedAtText) {
+            const startedAt = new Date(startedAtText);
+            const completedAt = new Date(completedAtText);
+            const durationMs = completedAt - startedAt;
+            const durationSeconds = Math.floor(durationMs / 1000);
+            const minutes = Math.floor(durationSeconds / 60);
+            const seconds = durationSeconds % 60;
+            
+            if (minutes > 0) {
+                durationElement.textContent = `${minutes}分${seconds}秒`;
+            } else {
+                durationElement.textContent = `${seconds}秒`;
+            }
+        }
+    }
+});
+
 function processTask() {
     // 显示处理中提示
     const processButton = event.target;
