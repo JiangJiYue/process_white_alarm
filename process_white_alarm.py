@@ -323,3 +323,65 @@ def process_row(row, idx):
 
     return {"type": "processed", "outputs": parsed_results}
 
+
+def is_valid_path(value, allow_filename_only=True):
+    """
+    使用Python内置函数判断是否为合法路径
+    """
+    if not isinstance(value, str):
+        return False
+    # 拒绝 URL
+    if value.lower().startswith(('http://', 'https://', 'ftp://', 'file://', 'mailto:', 'javascript:')):
+        return False
+    # 拒绝特殊标记
+    if value.startswith('<') and value.endswith('>'):
+        return False
+    try:
+        # 使用Pathlib来验证路径
+        path = Path(value)
+
+        # 检查路径是否包含非法字符（Windows特定）
+        if os.name == 'nt':  # Windows系统
+            illegal_chars = '<>:"|?*'
+            if any(char in value for char in illegal_chars):
+                return False
+
+        # 如果允许文件名且不是绝对路径，则认为是有效的
+        if allow_filename_only and not path.is_absolute():
+            is_valid = len(value) <= 255
+            # 记录验证结果
+            if not is_valid:
+                logger.debug(f"路径验证失败（文件名太长）: {repr(value)}")
+            return is_valid
+
+        # 对于绝对路径，检查基本格式
+        if path.is_absolute():
+            return True
+
+        # 尝试规范化路径，看是否有效
+        normalized = path.resolve()
+        is_valid = str(normalized) != '/'
+        # 记录验证结果
+        if not is_valid:
+            logger.debug(f"路径验证失败（规范化后无效）: {repr(value)}")
+        return is_valid
+
+    except Exception as e:
+        logger.debug(f"路径验证异常: {repr(value)}, 错误: {e}")
+        return False
+
+
+def clean_filter_string(filter_str):
+    """
+    清理过滤条件字符串，移除多余的空格和换行符
+    """
+    return filter_str.strip()
+
+
+def clean_excel_string(value):
+    """
+    清理字符串，使其适合写入Excel
+    """
+    if isinstance(value, str):
+        return value.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    return value
