@@ -195,6 +195,8 @@ def upload_file():
             
             # 保存任务信息
             task_id = f"task_{int(datetime.now().timestamp())}"
+            # 先加载现有的任务
+            tasks = load_tasks()
             tasks[task_id] = {
                 'id': task_id,
                 'filename': filename,
@@ -298,7 +300,13 @@ def process_task_async(task_id, max_rows_override=None):
             df = df.head(max_rows_override)
             task['processed_rows'] = len(df)
         else:
-            task['processed_rows'] = total_rows
+            # 检查配置中的默认设置
+            default_max_rows = config.get('processing', {}).get('max_rows_to_process')
+            if default_max_rows is not None:
+                df = df.head(default_max_rows)
+                task['processed_rows'] = len(df)
+            else:
+                task['processed_rows'] = total_rows
         
         # 初始化Ollama客户端
         ollama_client = create_ollama_client_from_config(config)

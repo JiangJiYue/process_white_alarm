@@ -220,8 +220,6 @@ system_prompt: |
     w-序号1：C:\\Windows\\System32\\services.exe|services.exe|系统服务|services
     w-序号2：/bin/bash|bash|系统命令|bash
     w-序号3：/usr/bin/python3|python3|解释器|python
-  
-  
     w-序号4：C:\\Program Files (x86)\\Alibaba\\aegis\\aegis_client\\aegis\\aliyundun.exe|aliyundun|安全组件|阿里云盾
     w-序号5：/opt/qax/safed/qaxsafed|qaxsafed|安全组件|奇安信
     w-序号6：/usr/local/tomcat/bin/catalina.sh|catalina.sh|Web服务|Apache Tomcat
