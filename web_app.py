@@ -14,38 +14,6 @@ from flask import Flask, request, jsonify, render_template, send_file, redirect,
 from werkzeug.utils import secure_filename
 import pandas as pd
 
-# 添加自定义过滤器用于计算持续时间
-@app.template_filter('duration_format')
-def duration_format(completed_at, started_at):
-    """计算并格式化任务持续时间"""
-    try:
-        from datetime import datetime
-        if isinstance(completed_at, str):
-            completed_time = datetime.fromisoformat(completed_at.replace('Z', '+00:00'))
-        else:
-            completed_time = completed_at
-            
-        if isinstance(started_at, str):
-            started_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-        else:
-            started_time = started_at
-            
-        duration = completed_time - started_time
-        duration_seconds = int(duration.total_seconds())
-        
-        hours = duration_seconds // 3600
-        minutes = (duration_seconds % 3600) // 60
-        seconds = duration_seconds % 60
-        
-        if hours > 0:
-            return f"{hours}小时{minutes}分{seconds}秒"
-        elif minutes > 0:
-            return f"{minutes}分{seconds}秒"
-        else:
-            return f"{seconds}秒"
-    except Exception:
-        return "未知"
-
 # 添加当前目录到Python路径
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -109,6 +77,38 @@ def cleanup_tasks_on_startup():
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'
+
+# 添加自定义过滤器用于计算持续时间
+@app.template_filter('duration_format')
+def duration_format(completed_at, started_at):
+    """计算并格式化任务持续时间"""
+    try:
+        from datetime import datetime
+        if isinstance(completed_at, str):
+            completed_time = datetime.fromisoformat(completed_at.replace('Z', '+00:00'))
+        else:
+            completed_time = completed_at
+            
+        if isinstance(started_at, str):
+            started_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+        else:
+            started_time = started_at
+            
+        duration = completed_time - started_time
+        duration_seconds = int(duration.total_seconds())
+        
+        hours = duration_seconds // 3600
+        minutes = (duration_seconds % 3600) // 60
+        seconds = duration_seconds % 60
+        
+        if hours > 0:
+            return f"{hours}小时{minutes}分{seconds}秒"
+        elif minutes > 0:
+            return f"{minutes}分{seconds}秒"
+        else:
+            return f"{seconds}秒"
+    except Exception:
+        return "未知"
 
 # 配置
 CONFIG_FILE = 'config.yaml'
