@@ -460,6 +460,8 @@ def process_task_async(task_id, max_rows_override=None):
 @app.route('/process/<task_id>', methods=['POST'])
 def process_task(task_id):
     """处理任务 - 立即返回，实际处理在后台进行"""
+    # 加载最新的任务数据
+    tasks = load_tasks()
     if task_id not in tasks:
         return jsonify({'error': '任务不存在'}), 404
     
