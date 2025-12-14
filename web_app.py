@@ -489,19 +489,7 @@ def process_task_async(task_id, max_rows_override=None):
         update_task_progress(task_id, total_rows, total_rows, 'completed')
         
         # 记录任务完成日志
-        task_logger.info(f"任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
-        
-        if invalid_records:
-            task_logger.info(f"💾 已保存 {len(invalid_records)} 条无效记录到 {os.path.join(output_dir, 'invalid_records.xlsx')}")
-        
-        if valid_results:
-            task_logger.info(f"✅ 处理完成！共生成 {len(valid_results)} 条有效路径结果，已保存到 {os.path.join(output_dir, 'valid_results.xlsx')}")
-        else:
-            task_logger.warning("⚠️ 未生成任何有效路径结果")
-        
-        task_logger.info(f"📄 详细日志请查看: {log_filepath}")
-        task_logger.info(f"📁 有效结果保存在: {os.path.join(output_dir, 'valid_results.xlsx')}")
-        task_logger.info(f"📁 无效记录保存在: {os.path.join(output_dir, 'invalid_records.xlsx')}")
+        task_logger.info(f"[序号{int(task_id.split('_')[1])}] 任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
         
         # 保存任务状态
         tasks = load_tasks()  # 重新加载任务以防在处理过程中有更新

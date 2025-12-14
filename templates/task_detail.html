@@ -218,8 +218,18 @@ function viewLog() {
     // 显示加载中状态
     document.getElementById('logContent').textContent = '加载中...';
     
-    // 显示模态框
-    var logModal = new bootstrap.Modal(document.getElementById('logModal'));
+    // 获取刷新按钮并临时禁用
+    const refreshButton = document.querySelector('[onclick="viewLog()"]');
+    const wasDisabled = refreshButton.disabled;
+    refreshButton.disabled = true;
+    refreshButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 加载中...';
+    
+    // 显示模态框（如果尚未显示）
+    var logModalElement = document.getElementById('logModal');
+    var logModal = bootstrap.Modal.getInstance(logModalElement);
+    if (!logModal) {
+        logModal = new bootstrap.Modal(logModalElement);
+    }
     logModal.show();
     
     // 获取日志内容
@@ -237,6 +247,11 @@ function viewLog() {
         .catch(error => {
             console.error('Error:', error);
             document.getElementById('logContent').textContent = '获取日志过程中发生错误: ' + error.message;
+        })
+        .finally(() => {
+            // 恢复刷新按钮状态
+            refreshButton.disabled = wasDisabled;
+            refreshButton.innerHTML = '刷新';
         });
 }
 </script>
