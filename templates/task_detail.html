@@ -78,10 +78,10 @@
                 </div>
                 {% elif task.status == 'processing' %}
                 <p>任务正在后台处理中...</p>
-                <a href="{{ url_for('task_list') }}" class="btn btn-secondary">查看任务管理页面</a>
-                <div class="mt-2">
-                    <button type="button" class="btn btn-info btn-sm" onclick="viewLog()">查看日志</button>
+                <div class="mb-2">
+                    <button type="button" class="btn btn-secondary" onclick="viewLog()">查看日志</button>
                 </div>
+                <a href="{{ url_for('task_list') }}" class="btn btn-info btn-sm">查看任务管理页面</a>
                 {% elif task.status == 'failed' %}
                 <div class="alert alert-danger">
                     <strong>任务失败:</strong> <span id="error-message">{{ task.error }}</span>
@@ -241,8 +241,9 @@ function viewLog() {
         .then(data => {
             if (data.status === 'success') {
                 document.getElementById('logContent').textContent = data.data || '日志为空';
-                // 滚动到底部
-                document.getElementById('logContent').scrollTop = document.getElementById('logContent').scrollHeight;
+                // 滚动到底部以显示最新日志
+                const logContent = document.getElementById('logContent');
+                logContent.scrollTop = logContent.scrollHeight;
             } else {
                 document.getElementById('logContent').textContent = '获取日志失败: ' + data.message;
             }
