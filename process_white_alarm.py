@@ -34,7 +34,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # 替换占位符生成日志文件路径
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-LOG_FILE = LOG_FILE_TEMPLATE.replace("{log_dir}", LOG_DIR).replace("{timestamp}", timestamp)
+LOG_FILE = LOG_FILE_TEMPLATE.replace("{log_dir}", LOG_DIR).replace("{timestamp}", timestamp).replace("{task_id}", "standalone")
 
 OLLAMA_CONFIG = config["ollama"]
 
@@ -88,7 +88,14 @@ for handler in root_logger.handlers[:]:
     handler.close()
 
 # 添加新的处理器
-file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
+# 使用 RotatingFileHandler 实现日志轮转
+from logging.handlers import RotatingFileHandler
+file_handler = RotatingFileHandler(
+    LOG_FILE, 
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=20,
+    encoding='utf-8'
+)
 file_handler.setFormatter(formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
@@ -101,6 +108,21 @@ logger = logging.getLogger(__name__)
 # 任务日志工厂
 def task_logger_factory(task_id):
     return LoggerAdapter(logger, {'task_id': task_id})
+
+# 允许外部设置任务日志工厂的函数
+_task_logger_factory = None
+
+def set_task_logger_factory(factory):
+    """设置外部任务日志工厂"""
+    global _task_logger_factory
+    _task_logger_factory = factory
+
+def get_task_logger(task_id):
+    """获取任务日志记录器"""
+    if _task_logger_factory:
+        return _task_logger_factory(task_id)
+    else:
+        return task_logger_factory(task_id)
 
 # 初始化 Ollama 客户端，传递logger
 ollama_client = create_ollama_client_from_config(config)
@@ -174,7 +196,7 @@ def clean_filter_string(filter_str):
 
 
 def call_ollama_model(input_text, task_id):
-    task_logger = task_logger_factory(task_id)
+    task_logger = get_task_logger(task_id)
     task_logger.debug({"event": "ollama_input", "input": input_text})
 
     success, result_text, metadata = ollama_client.call_model(
@@ -249,43 +271,30 @@ def call_ollama_model(input_text, task_id):
             "应用名称": clean_excel_string("<无>")
         }]
 
-    if not isinstance(data, list):
-        data = [data]
-
-    results = []
-    for item in data[:10]:
-        if not isinstance(item, dict):
-            path, filename, typ, app = "<非对象元素>", "<无文件名>", "未知", "<无>"
-        else:
-            raw_path = item.get("path", "<缺失path>")
-            raw_filename = item.get("filename", "<无文件名>")
-            raw_type = item.get("type", "未知")
-            raw_app = item.get("app", "<无>")
-            path = clean_excel_string(str(raw_path)).strip()
-            filename = clean_excel_string(str(raw_filename)).strip()
-            typ = clean_excel_string(str(raw_type)).strip()
-            app = clean_excel_string(str(raw_app)).strip()
-
-        results.append({
+    final_outputs = []
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                final_outputs.append({
+                    "序号": int(task_id.split('_')[1]),
+                    "输入内容": input_text,
+                    "原始路径": clean_excel_string(item.get("path", "<无路径>")),
+                    "文件名": clean_excel_string(item.get("filename", "<无文件名>")),
+                    "类型": clean_excel_string(item.get("type", "未知")),
+                    "应用名称": clean_excel_string(item.get("app", "<无>"))
+                })
+    elif isinstance(data, dict):
+        final_outputs.append({
             "序号": int(task_id.split('_')[1]),
             "输入内容": input_text,
-            "原始路径": path,
-            "文件名": filename,
-            "类型": typ,
-            "应用名称": app
+            "原始路径": clean_excel_string(data.get("path", "<无路径>")),
+            "文件名": clean_excel_string(data.get("filename", "<无文件名>")),
+            "类型": clean_excel_string(data.get("type", "未知")),
+            "应用名称": clean_excel_string(data.get("app", "<无>"))
         })
 
-    if not results:
-        results.append({
-            "序号": int(task_id.split('_')[1]),
-            "输入内容": input_text,
-            "原始路径": clean_excel_string("<无法确定路径>"),
-            "文件名": clean_excel_string("<无文件名>"),
-            "类型": "未知",
-            "应用名称": clean_excel_string("<无>")
-        })
-
-    return results
+    task_logger.debug({"event": "ollama_processed", "count": len(final_outputs)})
+    return final_outputs
 
 
 def process_row(row, idx):
@@ -325,89 +334,3 @@ def process_row(row, idx):
 
     return {"type": "processed", "outputs": parsed_results}
 
-
-# ================== 主函数 ==================
-def main():
-    logger.info("🧪 测试 Ollama 连接...")
-    if not test_ollama_connection(ollama_client):
-        logger.error("❌ Ollama 连接测试失败，程序退出")
-        return
-
-    logger.info("🚀 开始处理 Excel 文件: %s", INPUT_FILE)
-
-    # 注意：我们不再需要删除旧文件，因为每次运行都会创建一个新的带有时间戳的输出目录
-    logger.info("📂 输出目录: %s", OUTPUT_DIR)
-
-    if not os.path.exists(INPUT_FILE):
-        logger.error("❌ 输入文件不存在: %s", INPUT_FILE)
-        raise FileNotFoundError(f"文件 {INPUT_FILE} 不存在")
-
-    df = pd.read_excel(INPUT_FILE)
-    total_rows = len(df)
-    logger.info("📊 成功加载 Excel，共 %d 行", total_rows)
-
-    if MAX_ROWS_TO_PROCESS is not None and isinstance(MAX_ROWS_TO_PROCESS, int) and MAX_ROWS_TO_PROCESS > 0:
-        df = df.head(MAX_ROWS_TO_PROCESS)
-        logger.info("✂️ 仅处理前 %d 行（由 MAX_ROWS_TO_PROCESS 配置）", len(df))
-
-    invalid_records = []
-    valid_results = []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(process_row, row, idx): idx
-            for idx, row in df.iterrows()
-        }
-
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                idx_in_df = futures[future]
-                original_index = idx_in_df + 1
-
-                if result["type"] == "no_path_found":
-                    invalid_records.append({
-                        "序号": original_index,
-                        "原始路径": "<原始行未提取到任何路径>",
-                        "文件名": "<无文件名>",
-                        "类型": "未知",
-                        "应用名称": "<无>",
-                        "输入内容": str(result["row"])
-                    })
-                elif result["type"] == "processed":
-                    for output in result["outputs"]:
-                        raw_path = output["原始路径"]
-                        is_valid = is_valid_path(raw_path, allow_filename_only=True)
-                        logger.debug(f"路径验证结果: {repr(raw_path)} -> {is_valid}")
-                        if is_valid:
-                            valid_results.append(output)
-                        else:
-                            invalid_records.append(output)
-            except Exception as e:
-                logger.error(f"🔥 处理某行时发生未预期异常: {e}", exc_info=True)
-
-    if invalid_records:
-        invalid_df = pd.DataFrame(invalid_records)
-        cols = ["序号", "原始路径", "文件名", "类型", "应用名称", "输入内容"]
-        for col in cols:
-            if col not in invalid_df.columns:
-                invalid_df[col] = ""
-        invalid_df = invalid_df[cols]
-        invalid_df.to_excel(INVALID_OUTPUT_FILE, index=False)
-        logger.info("💾 已保存 %d 条无效记录到 %s", len(invalid_df), INVALID_OUTPUT_FILE)
-
-    if valid_results:
-        result_df = pd.DataFrame(valid_results)
-        result_df.sort_values("序号", inplace=True, ignore_index=True)
-        result_df.to_excel(RESULT_OUTPUT_FILE, index=False)
-        logger.info("✅ 处理完成！共生成 %d 条有效路径结果，已保存到 %s", len(result_df), RESULT_OUTPUT_FILE)
-    else:
-        logger.warning("⚠️ 未生成任何有效路径结果")
-
-    logger.info("📄 详细日志请查看: %s", LOG_FILE)
-    logger.info("📁 有效结果保存在: %s", RESULT_OUTPUT_FILE)
-    logger.info("📁 无效记录保存在: %s", INVALID_OUTPUT_FILE)
-
-
-if __name__ == "__main__":
-    main()

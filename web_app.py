@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from functools import wraps
 from threading import Thread
+from logging import LoggerAdapter
 
 from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for, flash
 from werkzeug.utils import secure_filename
@@ -314,8 +315,13 @@ def process_task_async(task_id, max_rows_override=None):
         # 设置日志文件
         log_dir = config.get('logging', {}).get('log_dir', 'logs')
         os.makedirs(log_dir, exist_ok=True)
-        log_filename = f"task_{task_id}.log"
-        log_filepath = os.path.join(log_dir, log_filename)
+        # 使用配置文件中的日志文件模板
+        log_file_template = config["logging"].get("log_file", "{log_dir}/{task_id}_{timestamp}.log")
+        # 生成时间戳
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 替换占位符生成日志文件路径
+        log_filename = log_file_template.replace("{log_dir}", log_dir).replace("{timestamp}", timestamp).replace("{task_id}", task_id)
+        log_filepath = os.path.join(log_dir, os.path.basename(log_filename))  # 确保文件在log_dir目录下
         
         # 配置日志格式
         LOG_LEVEL = getattr(logging, config["logging"]["level"].upper())
@@ -344,6 +350,7 @@ def process_task_async(task_id, max_rows_override=None):
                         log_message = f"[task_{record.task_id}] {log_message}"
                     return log_message
             
+            # 使用与process_white_alarm.py相同的格式
             formatter = TextFormatter("%(asctime)s [%(levelname)s] %(message)s")
         
         # 为当前任务创建专用的日志记录器
@@ -356,7 +363,14 @@ def process_task_async(task_id, max_rows_override=None):
             handler.close()
         
         # 添加新的处理器
-        file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
+        # 使用 RotatingFileHandler 实现日志轮转
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler(
+            log_filepath, 
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=20,
+            encoding='utf-8'
+        )
         file_handler.setFormatter(formatter)
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
@@ -367,9 +381,13 @@ def process_task_async(task_id, max_rows_override=None):
         # 立即写入一条日志，确保文件不为空
         task_logger.info(f"开始处理任务 {task_id}")
         
-        # 创建任务日志适配器工厂
+        # 创建任务日志适配器工厂，用于传递给 process_white_alarm 模块
         def task_logger_factory(task_id):
             return LoggerAdapter(task_logger, {'task_id': task_id})
+        
+        # 将任务日志记录器传递给 process_row 函数
+        import process_white_alarm
+        process_white_alarm.set_task_logger_factory(task_logger_factory)
         
         # 处理过程
         valid_results = []
@@ -433,6 +451,19 @@ def process_task_async(task_id, max_rows_override=None):
         
         # 记录任务完成日志
         task_logger.info(f"任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
+        
+        # 添加类似于 main() 函数中的日志记录
+        if invalid_records:
+            task_logger.info(f"💾 已保存 {len(invalid_records)} 条无效记录到 {os.path.join(output_dir, 'invalid_records.xlsx')}")
+        
+        if valid_results:
+            task_logger.info(f"✅ 处理完成！共生成 {len(valid_results)} 条有效路径结果，已保存到 {os.path.join(output_dir, 'valid_results.xlsx')}")
+        else:
+            task_logger.warning("⚠️ 未生成任何有效路径结果")
+        
+        task_logger.info(f"📄 详细日志请查看: {log_filepath}")
+        task_logger.info(f"📁 有效结果保存在: {os.path.join(output_dir, 'valid_results.xlsx')}")
+        task_logger.info(f"📁 无效记录保存在: {os.path.join(output_dir, 'invalid_records.xlsx')}")
         
         # 保存任务状态
         tasks = load_tasks()  # 重新加载任务以防在处理过程中有更新
@@ -499,10 +530,14 @@ def delete_task(task_id):
         # 删除日志文件（如果存在）
         config = load_config()
         log_dir = config.get('logging', {}).get('log_dir', 'logs')
-        log_filename = f"task_{task_id}.log"
-        log_filepath = os.path.join(log_dir, log_filename)
-        if os.path.exists(log_filepath):
-            os.remove(log_filepath)
+        
+        # 查找并删除匹配的任务日志文件（支持新旧两种命名规范）
+        if os.path.exists(log_dir):
+            for filename in os.listdir(log_dir):
+                if (filename.startswith(f"{task_id}_") or filename.startswith(f"task_{task_id}_")) and filename.endswith(".log"):
+                    log_filepath = os.path.join(log_dir, filename)
+                    if os.path.exists(log_filepath):
+                        os.remove(log_filepath)
         
         # 从任务字典中删除任务
         del tasks[task_id]
@@ -642,8 +677,18 @@ def get_task_log(task_id):
     config = load_config()
     log_dir = config.get('logging', {}).get('log_dir', 'logs')
     
-    # 构建日志文件路径
-    log_filename = f"task_{task_id}.log"
+    # 查找匹配的任务日志文件（使用新的命名规范）
+    log_filename = None
+    if os.path.exists(log_dir):
+        for filename in os.listdir(log_dir):
+            if filename.startswith(f"{task_id}_") and filename.endswith(".log"):
+                log_filename = filename
+                break
+    
+    # 如果没找到特定格式的日志文件，尝试查找旧格式的日志文件
+    if log_filename is None:
+        log_filename = f"task_{task_id}.log"
+    
     log_filepath = os.path.join(log_dir, log_filename)
     
     # 检查文件是否存在
@@ -651,7 +696,7 @@ def get_task_log(task_id):
         return jsonify({'status': 'error', 'message': '日志文件不存在'}), 404
     
     try:
-        # 读取日志文件内容
+        # 读取日志文件内容（以只读模式打开，支持正在被写入的文件）
         with open(log_filepath, 'r', encoding='utf-8') as f:
             log_content = f.read()
         return jsonify({'status': 'success', 'data': log_content})
