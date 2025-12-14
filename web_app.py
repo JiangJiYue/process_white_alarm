@@ -348,8 +348,8 @@ def process_task_async(task_id, max_rows_override=None):
             else:
                 task['processed_rows'] = total_rows
         
-        # 初始化Ollama客户端
-        ollama_client = create_ollama_client_from_config(config)
+        # 初始化Ollama客户端，并传递任务日志记录器
+        ollama_client = create_ollama_client_from_config(config, logger=task_logger)
         
         # 设置日志文件
         log_dir = config.get('logging', {}).get('log_dir', 'logs')
@@ -451,7 +451,6 @@ def process_task_async(task_id, max_rows_override=None):
                         task_logger.debug(f"路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
-                            task_logger.debug(f"添加有效结果: {repr(raw_path)}")
                         else:
                             invalid_records.append(output)
                             task_logger.debug(f"添加无效记录: {repr(raw_path)}")
