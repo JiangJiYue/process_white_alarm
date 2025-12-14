@@ -348,8 +348,8 @@ def process_task_async(task_id, max_rows_override=None):
             else:
                 task['processed_rows'] = total_rows
         
-        # 初始化Ollama客户端，并传递任务日志记录器
-        ollama_client = create_ollama_client_from_config(config, logger=task_logger)
+        # 初始化Ollama客户端
+        # ollama_client = create_ollama_client_from_config(config, logger=task_logger)
         
         # 设置日志文件
         log_dir = config.get('logging', {}).get('log_dir', 'logs')
@@ -427,6 +427,8 @@ def process_task_async(task_id, max_rows_override=None):
         # 将任务日志记录器传递给 process_row 函数
         import process_white_alarm
         process_white_alarm.set_task_logger_factory(task_logger_factory)
+        # 同时传递日志记录器给process_white_alarm模块
+        process_white_alarm.set_logger(task_logger)
         
         # 处理过程
         valid_results = []

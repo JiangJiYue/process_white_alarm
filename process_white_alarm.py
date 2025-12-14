@@ -108,13 +108,19 @@ logger = logging.getLogger(__name__)
 def task_logger_factory(task_id):
     return LoggerAdapter(logger, {'task_id': task_id})
 
-# 允许外部设置任务日志工厂的函数
+# 全局变量，用于存储任务日志记录器工厂函数
 _task_logger_factory = None
+_logger = None
 
 def set_task_logger_factory(factory):
-    """设置外部任务日志工厂"""
+    """设置任务日志记录器工厂函数"""
     global _task_logger_factory
     _task_logger_factory = factory
+
+def set_logger(logger):
+    """设置全局日志记录器"""
+    global _logger
+    _logger = logger
 
 def get_task_logger(task_id):
     """获取任务日志记录器"""
@@ -124,90 +130,26 @@ def get_task_logger(task_id):
         return task_logger_factory(task_id)
 
 # 初始化 Ollama 客户端，传递logger
-ollama_client = create_ollama_client_from_config(config)
+# ollama_client = create_ollama_client_from_config(config)
 
+# 延迟初始化 Ollama 客户端，使用传递的日志记录器
+def get_ollama_client():
+    global ollama_client
+    if 'ollama_client' not in globals() or ollama_client is None:
+        if _logger:
+            ollama_client = create_ollama_client_from_config(config, logger=_logger)
+        else:
+            ollama_client = create_ollama_client_from_config(config)
+    return ollama_client
 
-def clean_excel_string(s):
-    """
-    彻底清洗字符串，移除所有 Excel 不支持的控制字符和常见隐藏字符。
-    """
-    if not isinstance(s, str):
-        s = str(s)
-    # 移除 ASCII 控制字符（保留 \t \n \r）
-    s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
-    # 移除 Unicode 隐藏/格式字符（零宽空格、BOM、双向控制符等）
-    s = re.sub(r'[\u200B-\u200D\uFEFF\u202A-\u202E\u00AD\u180E]', '', s)
-    return s.strip()
-
-
-def is_valid_path(value, allow_filename_only=True):
-    """
-    使用Python内置函数判断是否为合法路径
-    """
-    if not isinstance(value, str):
-        return False
-    # 拒绝 URL
-    if value.lower().startswith(('http://', 'https://', 'ftp://', 'file://', 'mailto:', 'javascript:')):
-        return False
-    # 拒绝特殊标记
-    if value.startswith('<') and value.endswith('>'):
-        return False
-    try:
-        # 使用Pathlib来验证路径
-        path = Path(value)
-
-        # 检查路径是否包含非法字符（Windows特定）
-        if os.name == 'nt':  # Windows系统
-            illegal_chars = '<>:"|?*'
-            if any(char in value for char in illegal_chars):
-                return False
-
-        # 如果允许文件名且不是绝对路径，则认为是有效的
-        if allow_filename_only and not path.is_absolute():
-            is_valid = len(value) <= 255
-            # 记录验证结果
-            if not is_valid:
-                logger.debug(f"路径验证失败（文件名太长）: {repr(value)}")
-            return is_valid
-
-        # 对于绝对路径，检查基本格式
-        if path.is_absolute():
-            return True
-
-        # 尝试规范化路径，看是否有效
-        normalized = path.resolve()
-        is_valid = str(normalized) != '/'
-        # 记录验证结果
-        if not is_valid:
-            logger.debug(f"路径验证失败（规范化后无效）: {repr(value)}")
-        return is_valid
-
-    except Exception as e:
-        logger.debug(f"路径验证异常: {repr(value)}, 错误: {e}")
-        return False
-
-
-def clean_filter_string(filter_str):
-    """
-    清理过滤条件字符串：
-      - 移除 '组织机构 = "..."'
-      - 移除 '数据源 = "..."'
-    返回清理后的字符串（保留其他所有内容，包括 rlike）
-    """
-    if not isinstance(filter_str, str):
-        return filter_str
-
-    cleaned = re.sub(r'\s*组织机构\s*=\s*"[^"]*"', '', filter_str)
-    cleaned = re.sub(r'\s*数据源\s*=\s*"[^"]*"', '', cleaned)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
-
-
+# 修改 call_ollama_model 函数以使用延迟初始化的 Ollama 客户端
 def call_ollama_model(input_text, task_id):
     task_logger = get_task_logger(task_id)
     task_logger.debug({"event": "ollama_input", "input": input_text})
 
-    success, result_text, metadata = ollama_client.call_model(
+    # 使用延迟初始化的 Ollama 客户端
+    client = get_ollama_client()
+    success, result_text, metadata = client.call_model(
         prompt=input_text,
         system_prompt=SYSTEM_PROMPT,
         temperature=0.0,
