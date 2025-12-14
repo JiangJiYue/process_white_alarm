@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}任务详情 - 安全告警路径提取系统{% endblock %}
+
+{% block content %}
+<h2>任务详情</h2>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                任务信息
+            </div>
+            <div class="card-body">
+                <p><strong>任务ID:</strong> {{ task.id }}</p>
+                <p><strong>文件名:</strong> {{ task.filename }}</p>
+                <p><strong>状态:</strong> 
+                    <span id="task-status">
+                    {% if task.status == 'uploaded' %}
+                        <span class="badge bg-secondary">已上传</span>
+                    {% elif task.status == 'processing' %}
+                        <span class="badge bg-warning">处理中</span>
+                    {% elif task.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                    {% elif task.status == 'failed' %}
+                        <span class="badge bg-danger">失败</span>
+                    {% endif %}
+                    </span>
+                </p>
+                <p><strong>创建时间:</strong> {{ task.created_at }}</p>
+                {% if task.started_at %}
+                <p><strong>开始时间:</strong> <span id="started-at">{{ task.started_at }}</span></p>
+                {% endif %}
+                {% if task.completed_at %}
+                <p><strong>完成时间:</strong> {{ task.completed_at }}</p>
+                {% endif %}
+                {% if task.total_rows %}
+                <p><strong>总行数:</strong> {{ task.total_rows }}</p>
+                {% endif %}
+                {% if task.processed_rows %}
+                <p><strong>已处理行数:</strong> <span id="processed-rows">{{ task.processed_rows }}</span></p>
+                {% endif %}
+                {% if task.valid_count is defined %}
+                <p><strong>有效结果:</strong> {{ task.valid_count }}</p>
+                {% endif %}
+                {% if task.invalid_count is defined %}
+                <p><strong>无效记录:</strong> {{ task.invalid_count }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                操作
+            </div>
+            <div class="card-body">
+                {% if task.status == 'uploaded' %}
+                <form id="processForm">
+                    <div class="mb-3">
+                        <label for="max_rows_override" class="form-label">覆盖最大处理行数</label>
+                        <input type="number" class="form-control" id="max_rows_override" name="max_rows_override" placeholder="留空使用默认配置">
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="processTask()">开始处理</button>
+                </form>
+                {% elif task.status == 'completed' %}
+                <div class="mb-2">
+                    <a href="{{ url_for('download_file', task_id=task.id, file_type='valid') }}" class="btn btn-success">下载有效结果</a>
+                </div>
+                <div class="mb-2">
+                    <a href="{{ url_for('download_file', task_id=task.id, file_type='invalid') }}" class="btn btn-warning">下载无效记录</a>
+                </div>
+                <div class="mb-2">
+                    <button type="button" class="btn btn-info" onclick="viewLog()">查看日志</button>
+                </div>
+                {% elif task.status == 'processing' %}
+                <p>任务正在后台处理中...</p>
+                <a href="{{ url_for('task_list') }}" class="btn btn-secondary">查看任务管理页面</a>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-info btn-sm" onclick="viewLog()">查看日志</button>
+                </div>
+                {% elif task.status == 'failed' %}
+                <div class="alert alert-danger">
+                    <strong>任务失败:</strong> <span id="error-message">{{ task.error }}</span>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="processTask()">重试</button>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-info btn-sm" onclick="viewLog()">查看日志</button>
+                </div>
+                {% endif %}
+                
+                <hr>
+                
+                <a href="{{ url_for('preview_file', task_id=task.id) }}" class="btn btn-outline-primary">预览文件</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 日志模态框 -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logModalLabel">任务日志</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group mb-3">
+                    <input type="text" class="form-control" id="logSearch" placeholder="搜索日志...">
+                </div>
+                <pre id="logContent" class="bg-dark text-light p-3" style="max-height: 60vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function processTask() {
+    // 显示处理中提示
+    const processButton = event.target;
+    const originalText = processButton.innerHTML;
+    processButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 提交中...';
+    processButton.disabled = true;
+    
+    const formData = new FormData(document.getElementById('processForm'));
+    
+    fetch("{{ url_for('process_task', task_id=task.id) }}", {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        // 检查响应是否为JSON格式
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return response.json();
+        } else {
+            // 如果不是JSON响应，抛出错误
+            throw new Error("服务器返回了非JSON响应");
+        }
+    })
+    .then(data => {
+        if (data.status === 'success') {
+            // 显示成功提交提示
+            alert('任务已成功提交，正在后台运行。您可随时在【任务管理】页面查看该任务的实时状态、结果。');
+            // 跳转到任务管理页面
+            window.location.href = "{{ url_for('task_list') }}";
+        } else {
+            alert('处理失败: ' + data.message);
+            processButton.innerHTML = originalText;
+            processButton.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('处理过程中发生错误: ' + error.message);
+        processButton.innerHTML = originalText;
+        processButton.disabled = false;
+    });
+}
+
+function viewLog() {
+    // 显示加载中状态
+    document.getElementById('logContent').textContent = '加载中...';
+    
+    // 显示模态框
+    var logModal = new bootstrap.Modal(document.getElementById('logModal'));
+    logModal.show();
+    
+    // 获取日志内容
+    fetch(`/api/logs/{{ task.id }}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                document.getElementById('logContent').textContent = data.data || '日志为空';
+                // 滚动到底部
+                document.getElementById('logContent').scrollTop = document.getElementById('logContent').scrollHeight;
+            } else {
+                document.getElementById('logContent').textContent = '获取日志失败: ' + data.message;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('logContent').textContent = '获取日志过程中发生错误: ' + error.message;
+        });
+}
+</script>
+{% endblock %}

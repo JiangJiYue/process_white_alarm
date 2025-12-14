@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="jumbotron">
+    <h1 class="display-4">安全告警路径提取系统</h1>
+    <p class="lead">这是一个基于AI模型的安全告警路径提取系统，可以从安全告警数据中自动提取可疑程序路径。</p>
+    <hr class="my-4">
+    <p>系统主要功能包括：</p>
+    <ul>
+        <li>配置管理 - 管理系统各项参数</li>
+        <li>文件上传 - 上传Excel格式的安全告警数据</li>
+        <li>任务处理 - 异步处理安全告警数据</li>
+        <li>结果展示 - 展示并导出处理结果</li>
+    </ul>
+    <a class="btn btn-primary btn-lg" href="{{ url_for('upload_file') }}" role="button">开始使用</a>
+</div>
+
+<div class="row mt-5">
+    <div class="col-md-4">
+        <h3>配置管理</h3>
+        <p>管理系统配置，包括Ollama服务器地址、模型名称、处理参数等。</p>
+        <a href="{{ url_for('config_page') }}" class="btn btn-outline-primary">前往配置</a>
+    </div>
+    <div class="col-md-4">
+        <h3>文件上传</h3>
+        <p>上传Excel格式的安全告警数据文件进行处理。</p>
+        <a href="{{ url_for('upload_file') }}" class="btn btn-outline-primary">上传文件</a>
+    </div>
+    <div class="col-md-4">
+        <h3>任务管理</h3>
+        <p>查看和管理已提交的处理任务。</p>
+        <a href="{{ url_for('task_list') }}" class="btn btn-outline-primary">查看任务</a>
+    </div>
+</div>
+{% endblock %}

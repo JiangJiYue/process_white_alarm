@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}任务列表 - 安全告警路径提取系统{% endblock %}
+
+{% block content %}
+<h2>任务列表</h2>
+
+{% if tasks %}
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>任务ID</th>
+            <th>文件名</th>
+            <th>状态</th>
+            <th>创建时间</th>
+            <th>有效结果</th>
+            <th>无效记录</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in (tasks.values() | sort(attribute='created_at', reverse=True)) %}
+        <tr>
+            <td>{{ task.id }}</td>
+            <td>{{ task.filename }}</td>
+            <td>
+                {% if task.status == 'uploaded' %}
+                    <span class="badge bg-secondary">已上传</span>
+                {% elif task.status == 'processing' %}
+                    <span class="badge bg-warning">处理中</span>
+                {% elif task.status == 'completed' %}
+                    <span class="badge bg-success">已完成</span>
+                {% elif task.status == 'failed' %}
+                    <span class="badge bg-danger">失败</span>
+                {% endif %}
+            </td>
+            <td>{{ task.created_at }}</td>
+            <td>
+                {% if task.valid_count is defined %}
+                    {{ task.valid_count }}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>
+                {% if task.invalid_count is defined %}
+                    {{ task.invalid_count }}
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>
+                <a href="{{ url_for('task_detail', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">查看详情</a>
+                {% if task.status == 'completed' %}
+                    <a href="{{ url_for('download_file', task_id=task.id, file_type='valid') }}" class="btn btn-sm btn-success">下载结果</a>
+                {% endif %}
+                <form method="POST" action="{{ url_for('delete_task', task_id=task.id) }}" style="display: inline;" onsubmit="return confirm('确定要删除任务 {{ task.id }} 吗？此操作将同时删除相关文件和日志，且不可恢复。')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="alert alert-info">
+    <p>暂无任务</p>
+    <a href="{{ url_for('upload_file') }}" class="btn btn-primary">上传文件创建任务</a>
+</div>
+{% endif %}
+{% endblock %}

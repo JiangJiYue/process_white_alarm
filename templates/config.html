@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}配置管理 - 安全告警路径提取系统{% endblock %}
+
+{% block content %}
+<h2>配置管理</h2>
+
+<form method="POST">
+    <div class="row">
+        <div class="col-md-6">
+            <h4>Ollama 配置</h4>
+            <div class="mb-3">
+                <label for="ollama_url" class="form-label">Ollama URL</label>
+                <input type="text" class="form-control" id="ollama_url" name="ollama_url" value="{{ config.ollama.url }}">
+            </div>
+            <div class="mb-3">
+                <label for="ollama_model_name" class="form-label">模型名称</label>
+                <input type="text" class="form-control" id="ollama_model_name" name="ollama_model_name" value="{{ config.ollama.model_name }}">
+            </div>
+            <div class="mb-3">
+                <label for="ollama_timeout" class="form-label">超时时间（秒）</label>
+                <input type="number" class="form-control" id="ollama_timeout" name="ollama_timeout" value="{{ config.ollama.timeout_seconds }}">
+            </div>
+            <div class="mb-3">
+                <label for="ollama_max_retries" class="form-label">最大重试次数</label>
+                <input type="number" class="form-control" id="ollama_max_retries" name="ollama_max_retries" value="{{ config.ollama.max_retries }}">
+            </div>
+            
+            <h4>Web 应用配置</h4>
+            <div class="mb-3">
+                <label for="upload_folder" class="form-label">上传文件夹</label>
+                <input type="text" class="form-control" id="upload_folder" name="upload_folder" value="{{ config.web.upload_folder if config.web.upload_folder else 'uploads' }}">
+            </div>
+            <div class="mb-3">
+                <label for="allowed_extensions" class="form-label">允许的文件扩展名</label>
+                <input type="text" class="form-control" id="allowed_extensions" name="allowed_extensions" value="{{ config.web.allowed_extensions | join(',') if config.web.allowed_extensions else 'xlsx,xls' }}">
+                <div class="form-text">用逗号分隔多个扩展名</div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <h4>处理配置</h4>
+            <div class="mb-3">
+                <label for="max_workers" class="form-label">最大并发数</label>
+                <input type="number" class="form-control" id="max_workers" name="max_workers" value="{{ config.processing.max_workers }}">
+            </div>
+            <div class="mb-3">
+                <label for="max_rows_to_process" class="form-label">最大处理行数</label>
+                <input type="number" class="form-control" id="max_rows_to_process" name="max_rows_to_process" value="{{ config.processing.max_rows_to_process if config.processing.max_rows_to_process else '' }}">
+                <div class="form-text">留空表示处理所有行</div>
+            </div>
+            
+            <h4>日志配置</h4>
+            <div class="mb-3">
+                <label for="log_level" class="form-label">日志级别</label>
+                <select class="form-select" id="log_level" name="log_level">
+                    <option value="DEBUG" {% if config.logging.level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                    <option value="INFO" {% if config.logging.level == 'INFO' %}selected{% endif %}>INFO</option>
+                    <option value="WARNING" {% if config.logging.level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                    <option value="ERROR" {% if config.logging.level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="log_format" class="form-label">日志格式</label>
+                <select class="form-select" id="log_format" name="log_format">
+                    <option value="text" {% if config.logging.format == 'text' %}selected{% endif %}>文本格式</option>
+                    <option value="json" {% if config.logging.format == 'json' %}selected{% endif %}>JSON格式</option>
+                </select>
+            </div>
+            
+            <h4>输出配置</h4>
+            <div class="mb-3">
+                <label for="output_dir" class="form-label">输出目录</label>
+                <input type="text" class="form-control" id="output_dir" name="output_dir" value="{{ config.output_dir if config.output_dir else 'results' }}">
+                <div class="form-text">所有输出文件将保存在此目录下</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-12">
+            <h4>系统提示词</h4>
+            <div class="mb-3">
+                <textarea class="form-control" id="system_prompt" name="system_prompt" rows="10">{{ config.system_prompt }}</textarea>
+            </div>
+        </div>
+    </div>
+    
+    <button type="submit" class="btn btn-primary">保存配置</button>
+</form>
+{% endblock %}
