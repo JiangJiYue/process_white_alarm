@@ -17,10 +17,12 @@ ollama:
 
 processing:
   max_workers: 10
-  max_rows_to_process: 50  # null 表示全部处理
+  max_rows_to_process: null  # null 表示全部处理
+  # 需要忽略的列名列表，默认为空表示不忽略任何列
+  ignored_columns: []
 
 logging:
-  log_file: "{log_dir}/task_{timestamp}.log"
+  log_file: "{log_dir}/{task_id}_{timestamp}.log"
   level: "DEBUG"
   format: "text"  # 可选: text 或 json
   log_dir: "logs"

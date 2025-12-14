@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -313,8 +312,13 @@ def process_row(row, idx):
     # 如果没有过滤条件，或清理后为空，则拼接整行（跳过组织机构和数据源）
     if not input_text.strip():
         parts = []
+        # 从配置中读取需要忽略的列，如果配置为空则不忽略任何列
+        ignored_columns = config.get("processing", {}).get("ignored_columns", [])
+        # 如果ignored_columns为None，将其设置为空列表
+        if ignored_columns is None:
+            ignored_columns = []
         for col, val in row_dict.items():
-            if col in ["组织机构", "数据源"]:
+            if col in ignored_columns:
                 continue
             if pd.notna(val) and str(val).strip():
                 parts.append(f"{col} = {str(val).strip()}")
