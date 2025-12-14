@@ -235,6 +235,15 @@ function viewLog() {
     }
     logModal.show();
     
+    // 确保模态框完全显示后再设置焦点
+    logModalElement.addEventListener('shown.bs.modal', function () {
+        // 获取日志内容区域并设置焦点，避免关闭按钮获得焦点
+        const logContent = document.getElementById('logContent');
+        if (logContent) {
+            logContent.focus();
+        }
+    });
+    
     // 获取日志内容
     fetch(`/api/logs/{{ task.id }}`)
         .then(response => response.json())
@@ -262,7 +271,7 @@ function viewLog() {
             setTimeout(() => {
                 const logContent = document.getElementById('logContent');
                 logContent.scrollTop = logContent.scrollHeight;
-                }, 0);
+            }, 0);
         })
         .finally(() => {
             // 恢复刷新按钮状态
