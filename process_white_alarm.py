@@ -164,7 +164,11 @@ def is_valid_path(value, allow_filename_only=True):
 
         # 如果允许文件名且不是绝对路径，则认为是有效的
         if allow_filename_only and not path.is_absolute():
-            return len(value) <= 255
+            is_valid = len(value) <= 255
+            # 记录验证结果
+            if not is_valid:
+                logger.debug(f"路径验证失败（文件名太长）: {repr(value)}")
+            return is_valid
 
         # 对于绝对路径，检查基本格式
         if path.is_absolute():
@@ -172,9 +176,14 @@ def is_valid_path(value, allow_filename_only=True):
 
         # 尝试规范化路径，看是否有效
         normalized = path.resolve()
-        return str(normalized) != '/'
+        is_valid = str(normalized) != '/'
+        # 记录验证结果
+        if not is_valid:
+            logger.debug(f"路径验证失败（规范化后无效）: {repr(value)}")
+        return is_valid
 
-    except Exception:
+    except Exception as e:
+        logger.debug(f"路径验证异常: {repr(value)}, 错误: {e}")
         return False
 
 
@@ -220,15 +229,18 @@ def call_ollama_model(input_text, task_id):
 
     # --- 🔧 新增：增强 JSON 清洗逻辑 ---
     cleaned_text = result_text.strip()
-
+    
+    # 记录原始响应和清洗前的文本
+    task_logger.debug({"event": "raw_model_response", "response": result_text})
+    
     # 1. 移除开头的 "json" 或 "```json" 等标记
     cleaned_text = re.sub(r'^```json\s*', '', cleaned_text)
     cleaned_text = re.sub(r'^```\s*json\s*', '', cleaned_text)
     cleaned_text = re.sub(r'^json\s*', '', cleaned_text, flags=re.IGNORECASE)
-
+    
     # 2. 移除结尾的 "```"
     cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
-
+    
     # 3. 找到 JSON 开始位置（第一个 '{' 或 '['）
     start_brace = cleaned_text.find('{')
     start_bracket = cleaned_text.find('[')
@@ -238,7 +250,7 @@ def call_ollama_model(input_text, task_id):
     else:
         # 如果找不到开始符号，尝试从第一个字母开始找对象或数组
         cleaned_text = cleaned_text.lstrip()
-
+    
     # 4. 尝试从后往前找到结束符号，确保 JSON 完整
     # （防止 Ollama 截断响应）
     last_brace = cleaned_text.rfind('}')
@@ -246,9 +258,12 @@ def call_ollama_model(input_text, task_id):
     end_pos = max(last_brace, last_bracket)
     if end_pos != -1:
         cleaned_text = cleaned_text[:end_pos + 1]
-
+    
     cleaned_text = cleaned_text.strip()
-
+    
+    # 记录清洗后的文本
+    task_logger.debug({"event": "cleaned_model_response", "response": cleaned_text})
+    
     # --- END JSON 清洗 ---
 
     try:
@@ -274,22 +289,50 @@ def call_ollama_model(input_text, task_id):
     if isinstance(data, list):
         for item in data:
             if isinstance(item, dict):
+                path = clean_excel_string(item.get("path", "<无路径>"))
+                filename = clean_excel_string(item.get("filename", "<无文件名>"))
+                typ = clean_excel_string(item.get("type", "未知"))
+                app = clean_excel_string(item.get("app", "<无>"))
+                
+                # 记录每个提取的路径信息
+                task_logger.debug({
+                    "event": "extracted_path", 
+                    "path": path, 
+                    "filename": filename, 
+                    "type": typ, 
+                    "app": app
+                })
+                
                 final_outputs.append({
                     "序号": int(task_id.split('_')[1]),
                     "输入内容": input_text,
-                    "原始路径": clean_excel_string(item.get("path", "<无路径>")),
-                    "文件名": clean_excel_string(item.get("filename", "<无文件名>")),
-                    "类型": clean_excel_string(item.get("type", "未知")),
-                    "应用名称": clean_excel_string(item.get("app", "<无>"))
+                    "原始路径": path,
+                    "文件名": filename,
+                    "类型": typ,
+                    "应用名称": app
                 })
     elif isinstance(data, dict):
+        path = clean_excel_string(data.get("path", "<无路径>"))
+        filename = clean_excel_string(data.get("filename", "<无文件名>"))
+        typ = clean_excel_string(data.get("type", "未知"))
+        app = clean_excel_string(data.get("app", "<无>"))
+        
+        # 记录提取的路径信息
+        task_logger.debug({
+            "event": "extracted_path", 
+            "path": path, 
+            "filename": filename, 
+            "type": typ, 
+            "app": app
+        })
+        
         final_outputs.append({
             "序号": int(task_id.split('_')[1]),
             "输入内容": input_text,
-            "原始路径": clean_excel_string(data.get("path", "<无路径>")),
-            "文件名": clean_excel_string(data.get("filename", "<无文件名>")),
-            "类型": clean_excel_string(data.get("type", "未知")),
-            "应用名称": clean_excel_string(data.get("app", "<无>"))
+            "原始路径": path,
+            "文件名": filename,
+            "类型": typ,
+            "应用名称": app
         })
 
     task_logger.debug({"event": "ollama_processed", "count": len(final_outputs)})

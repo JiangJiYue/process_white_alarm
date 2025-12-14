@@ -157,6 +157,13 @@ def config_page():
             max_rows = request.form.get('max_rows_to_process', '')
             config['processing']['max_rows_to_process'] = int(max_rows) if max_rows else None
             
+            # 更新忽略的列配置
+            ignored_columns_str = request.form.get('ignored_columns', '')
+            if ignored_columns_str:
+                config['processing']['ignored_columns'] = [col.strip() for col in ignored_columns_str.split(',') if col.strip()]
+            else:
+                config['processing']['ignored_columns'] = []
+            
             # 更新日志配置
             config['logging']['level'] = request.form.get('log_level', config['logging']['level'])
             config['logging']['format'] = request.form.get('log_format', config['logging']['format'])
@@ -409,10 +416,13 @@ def process_task_async(task_id, max_rows_override=None):
                     for output in result["outputs"]:
                         raw_path = output["原始路径"]
                         is_valid = is_valid_path(raw_path, allow_filename_only=True)
+                        task_logger.debug(f"路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
+                            task_logger.debug(f"添加有效结果: {repr(raw_path)}")
                         else:
                             invalid_records.append(output)
+                            task_logger.debug(f"添加无效记录: {repr(raw_path)}")
                 
                 # 更新进度
                 update_task_progress(task_id, idx + 1, total_rows, 'processing')
