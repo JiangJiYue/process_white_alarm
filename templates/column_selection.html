@@ -42,11 +42,10 @@
                     </div>
                     
                     <div class="form-text">
-                        <p class="mb-1"><strong>使用说明：</strong></p>
+                        <p class="mb-1"><strong>提示：</strong></p>
                         <ul class="mb-0">
                             <li>如果选择了"过滤条件"列，可以输入其中的键名来忽略特定键值对</li>
-                            <li>例如过滤条件内容为：<code>数据源 = "EDR" and 命令行 = "..."</code></li>
-                            <li>可输入：<code>数据源</code> 来忽略"数据源"键值对</li>
+                            <li>例如过滤条件内容为：<code>数据源 = "EDR" and 命令行 = "..."</code>，可输入<code>数据源</code>来忽略该键值对</li>
                         </ul>
                     </div>
                 </div>
@@ -66,7 +65,6 @@
         <ul>
             <li><strong>输入列</strong>：选择您希望模型分析的列，系统会将这些列的内容拼接后提供给模型</li>
             <li><strong>忽略列</strong>：如果您选择的某些列包含固定值、元数据或无关上下文，可将其加入忽略列列表</li>
-            <li><strong>特殊处理</strong>：当选中"过滤条件"列时，系统会自动解析其中的键值对（如：<code>数据源 = "SIEM"</code>），并将这些键值对作为独立的输入项</li>
             <li><strong>非键值对格式</strong>：如果"过滤条件"列的内容不是键值对格式（如纯文本），系统会将其作为普通列内容处理</li>
             <li><strong>示例</strong>：如果选择"过滤条件"列，其内容为：<br>
                 <code>数据源 = "SIEM" and 命令行 = "powershell -enc ..."</code><br>
