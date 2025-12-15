@@ -54,8 +54,7 @@
     </div>
     
     <div class="mt-3">
-        <button type="submit" class="btn btn-primary">保存并继续</button>
-        <a href="{{ url_for('task_detail', task_id=task.id) }}" class="btn btn-secondary">跳过（使用默认设置）</a>
+        <button type="submit" class="btn btn-primary" id="submit-btn">保存并继续</button>
     </div>
 </form>
 
@@ -117,6 +116,7 @@ function extractUniqueFilterKeys(filterSamples) {
 document.addEventListener('DOMContentLoaded', function() {
     // 获取所有输入列的复选框
     const columnCheckboxes = document.querySelectorAll('.column-checkbox');
+    const submitBtn = document.getElementById('submit-btn');
     
     // 为每个输入列复选框添加事件监听器
     columnCheckboxes.forEach(function(checkbox) {
@@ -146,97 +146,109 @@ document.addEventListener('DOMContentLoaded', function() {
             container.removeChild(container.firstChild);
         }
         
-        // 如果有选中的输入列，则显示忽略列选项
-        if (selectedColumns.length > 0) {
-            // 检查是否选择了"过滤条件"列
-            const hasFilterColumn = selectedColumns.includes("过滤条件");
+        // 检查是否有选中的列
+        if (selectedColumns.length === 0) {
+            // 如果没有选中的输入列，显示提示信息
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-warning';
+            alertDiv.textContent = '请至少选择一列作为输入列';
+            container.appendChild(alertDiv);
             
-            // 如果选择了"过滤条件"列，显示手动输入区域
-            if (hasFilterColumn && manualInputDiv) {
-                manualInputDiv.style.display = 'block';
-                
-                // 如果用户在文本框中输入了内容，则使用用户输入的内容
-                if (filterExamplesTextarea) {
-                    const userInput = filterExamplesTextarea.value.trim();
-                    if (userInput) {
-                        filterSamples = userInput.split(',').map(s => s.trim());
-                    }
-                }
-            } else if (manualInputDiv) {
-                manualInputDiv.style.display = 'none';
+            // 禁用提交按钮
+            if (submitBtn) {
+                submitBtn.disabled = true;
             }
             
-            // 收集所有可忽略的项（包括普通列名和过滤条件中的键）
-            const ignorableItems = [];
+            if (manualInputDiv) {
+                manualInputDiv.style.display = 'none';
+            }
+            return;
+        } else {
+            // 启用提交按钮
+            if (submitBtn) {
+                submitBtn.disabled = false;
+            }
+        }
+        
+        // 检查是否选择了"过滤条件"列
+        const hasFilterColumn = selectedColumns.includes("过滤条件");
+        
+        // 如果选择了"过滤条件"列，显示手动输入区域
+        if (hasFilterColumn && manualInputDiv) {
+            manualInputDiv.style.display = 'block';
             
-            selectedColumns.forEach(function(column) {
-                if (column === "过滤条件") {
-                    // 特殊处理过滤条件列，解析其中的键值对
-                    const filterKeys = extractUniqueFilterKeys(filterSamples);
-                    
-                    if (filterKeys.length > 0) {
-                        // 添加过滤条件中的键
-                        filterKeys.forEach(key => {
-                            ignorableItems.push({
-                                value: key,
-                                label: `过滤条件: ${key}`,
-                                isFilterKey: true
-                            });
-                        });
-                    } else {
-                        // 如果无法解析键值对，将整个列作为可选项
+            // 如果用户在文本框中输入了内容，则使用用户输入的内容
+            if (filterExamplesTextarea) {
+                const userInput = filterExamplesTextarea.value.trim();
+                if (userInput) {
+                    filterSamples = userInput.split(',').map(s => s.trim());
+                }
+            }
+        } else if (manualInputDiv) {
+            manualInputDiv.style.display = 'none';
+        }
+        
+        // 收集所有可忽略的项（包括普通列名和过滤条件中的键）
+        const ignorableItems = [];
+        
+        selectedColumns.forEach(function(column) {
+            if (column === "过滤条件") {
+                // 特殊处理过滤条件列，解析其中的键值对
+                const filterKeys = extractUniqueFilterKeys(filterSamples);
+                
+                if (filterKeys.length > 0) {
+                    // 添加过滤条件中的键
+                    filterKeys.forEach(key => {
                         ignorableItems.push({
-                            value: column,
-                            label: column,
-                            isFilterKey: false
+                            value: key,
+                            label: `过滤条件: ${key}`,
+                            isFilterKey: true
                         });
-                    }
+                    });
                 } else {
-                    // 普通列
+                    // 如果无法解析键值对，将整个列作为可选项
                     ignorableItems.push({
                         value: column,
                         label: column,
                         isFilterKey: false
                     });
                 }
-            });
-            
-            // 为每个可忽略项创建复选框
-            ignorableItems.forEach(function(item, index) {
-                const div = document.createElement('div');
-                div.className = 'form-check';
-                
-                const input = document.createElement('input');
-                input.className = 'form-check-input';
-                input.type = 'checkbox';
-                input.name = 'ignored_columns';
-                input.value = item.value;
-                input.id = 'ignored_' + index;
-                
-                // 检查是否应该选中（如果该列之前被选为忽略列）
-                if (ignoredColumnsData && ignoredColumnsData.includes(item.value)) {
-                    input.checked = true;
-                }
-                
-                const label = document.createElement('label');
-                label.className = 'form-check-label';
-                label.htmlFor = 'ignored_' + index;
-                label.textContent = item.label;
-                
-                div.appendChild(input);
-                div.appendChild(label);
-                container.appendChild(div);
-            });
-        } else {
-            // 如果没有选中的输入列，显示提示信息
-            const p = document.createElement('p');
-            p.className = 'text-muted';
-            p.textContent = '请先在左侧选择输入列';
-            container.appendChild(p);
-            if (manualInputDiv) {
-                manualInputDiv.style.display = 'none';
+            } else {
+                // 普通列
+                ignorableItems.push({
+                    value: column,
+                    label: column,
+                    isFilterKey: false
+                });
             }
-        }
+        });
+        
+        // 为每个可忽略项创建复选框
+        ignorableItems.forEach(function(item, index) {
+            const div = document.createElement('div');
+            div.className = 'form-check';
+            
+            const input = document.createElement('input');
+            input.className = 'form-check-input';
+            input.type = 'checkbox';
+            input.name = 'ignored_columns';
+            input.value = item.value;
+            input.id = 'ignored_' + index;
+            
+            // 检查是否应该选中（如果该列之前被选为忽略列）
+            if (ignoredColumnsData && ignoredColumnsData.includes(item.value)) {
+                input.checked = true;
+            }
+            
+            const label = document.createElement('label');
+            label.className = 'form-check-label';
+            label.htmlFor = 'ignored_' + index;
+            label.textContent = item.label;
+            
+            div.appendChild(input);
+            div.appendChild(label);
+            container.appendChild(div);
+        });
     }
     
     // 监听文本框输入事件，实时更新忽略列选项
@@ -247,6 +259,22 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 初始化时更新一次忽略列
     updateIgnoredColumns();
+    
+    // 表单提交前验证
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            const selectedColumns = Array.from(columnCheckboxes)
+                .filter(checkbox => checkbox.checked)
+                .map(checkbox => checkbox.value);
+            
+            if (selectedColumns.length === 0) {
+                e.preventDefault();
+                alert('请至少选择一列作为输入列');
+                return false;
+            }
+        });
+    }
 });
 </script>
 {% endblock %}

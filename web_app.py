@@ -278,6 +278,11 @@ def column_selection(task_id):
     if request.method == 'POST':
         # 获取用户选择的列
         selected_columns = request.form.getlist('selected_columns')
+        # 验证至少选择了一列
+        if not selected_columns:
+            flash('请至少选择一列作为输入列', 'error')
+            return redirect(url_for('column_selection', task_id=task_id))
+            
         # 获取用户输入的忽略列
         ignored_columns_input = request.form.get('ignored_columns_input', '')
         ignored_columns = [col.strip() for col in ignored_columns_input.split(',') if col.strip()]
