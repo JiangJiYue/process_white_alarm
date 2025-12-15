@@ -328,11 +328,17 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
                 # 特殊处理"过滤条件"列，解析其中的键值对
                 if col == "过滤条件":
                     filter_dict = parse_filter_conditions(str(val))
-                    # 从解析出的键值对中移除被忽略的键
-                    for filter_key, filter_val in filter_dict.items():
-                        if filter_key in actual_ignored_columns:
-                            continue
-                        parts.append(f"{filter_key} = {filter_val}")
+                    # 检查是否有解析出的键值对
+                    if not filter_dict:
+                        # 如果没有解析出键值对，将原始内容作为普通列处理
+                        logger.warning(f"过滤条件列内容未能解析为键值对格式 (序号{original_index}): {repr(str(val))}")
+                        parts.append(f"{col} = {str(val).strip()}")
+                    else:
+                        # 从解析出的键值对中移除被忽略的键
+                        for filter_key, filter_val in filter_dict.items():
+                            if filter_key in actual_ignored_columns:
+                                continue
+                            parts.append(f"{filter_key} = {filter_val}")
                 else:
                     parts.append(f"{col} = {str(val).strip()}")
         
@@ -345,21 +351,27 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
             if raw_filter:
                 # 解析过滤条件中的键值对
                 filter_dict = parse_filter_conditions(raw_filter)
-                # 从配置中读取需要忽略的列
-                ignored_columns = config.get("processing", {}).get("ignored_columns", [])
-                # 如果ignored_columns为None，将其设置为空列表
-                if ignored_columns is None:
-                    ignored_columns = []
-                
-                # 构建parts，排除被忽略的键
-                parts = []
-                for filter_key, filter_val in filter_dict.items():
-                    if filter_key in ignored_columns:
-                        continue
-                    parts.append(f"{filter_key} = {filter_val}")
-                
-                input_text = " ; ".join(parts)
-                logger.debug(f"解析后的过滤条件 (序号{original_index}): {repr(input_text)}")
+                # 检查是否有解析出的键值对
+                if not filter_dict:
+                    # 如果没有解析出键值对，将原始内容作为普通列处理
+                    logger.warning(f"过滤条件列内容未能解析为键值对格式 (序号{original_index}): {repr(raw_filter)}")
+                    input_text = raw_filter
+                else:
+                    # 从配置中读取需要忽略的列
+                    ignored_columns = config.get("processing", {}).get("ignored_columns", [])
+                    # 如果ignored_columns为None，将其设置为空列表
+                    if ignored_columns is None:
+                        ignored_columns = []
+                    
+                    # 构建parts，排除被忽略的键
+                    parts = []
+                    for filter_key, filter_val in filter_dict.items():
+                        if filter_key in ignored_columns:
+                            continue
+                        parts.append(f"{filter_key} = {filter_val}")
+                    
+                    input_text = " ; ".join(parts)
+                    logger.debug(f"解析后的过滤条件 (序号{original_index}): {repr(input_text)}")
         else:
             # 如果没有过滤条件，或清理后为空，则拼接整行（跳过组织机构和数据源）
             if not input_text.strip():
