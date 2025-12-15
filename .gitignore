@@ -1,1 +1,7 @@
 .idea/
+logs/
+results/
+__pycache__/
+uploads/
+.DS_Store
+*.log
