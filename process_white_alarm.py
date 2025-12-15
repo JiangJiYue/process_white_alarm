@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yaml
 from logging import LoggerAdapter
 from datetime import datetime
+import contextvars
 
 # 导入抽离的 Ollama 模块
 from ollama_client import OllamaClient, create_ollama_client_from_config, test_ollama_connection
@@ -35,6 +36,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 LOG_FILE = LOG_FILE_TEMPLATE.replace("{log_dir}", LOG_DIR).replace("{timestamp}", timestamp).replace("{task_id}", "standalone")
 
+# 注意：standalone模式已被弃用，不会再生成standalone_*.log文件
+# 所有日志现在都在Web应用中通过任务ID进行管理
+
 OLLAMA_CONFIG = config["ollama"]
 
 MAX_WORKERS = config["processing"]["max_workers"]
@@ -51,6 +55,25 @@ SYSTEM_PROMPT = config["system_prompt"].rstrip()
 # 创建输出目录
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# 创建上下文变量来存储当前行号
+row_context_var = contextvars.ContextVar('row_number', default=None)
+
+# 自定义日志过滤器，用于添加行号前缀
+class RowContextFilter(logging.Filter):
+    def filter(self, record):
+        row_number = row_context_var.get()
+        if row_number is not None:
+            record.row_number = row_number
+        else:
+            record.row_number = None
+        return True
+
+# 控制台过滤器，只允许任务级别日志通过
+class ConsoleFilter(logging.Filter):
+    def filter(self, record):
+        # 只允许没有row_number的记录通过（即任务级别日志）
+        return not hasattr(record, 'row_number') or record.row_number is None
+
 # 配置日志格式
 if LOG_FORMAT == "json":
     # JSON格式日志
@@ -61,8 +84,8 @@ if LOG_FORMAT == "json":
                 "level": record.levelname,
                 "message": record.getMessage()
             }
-            if hasattr(record, 'task_id'):
-                log_entry["task_id"] = record.task_id
+            if hasattr(record, 'row_number') and record.row_number is not None:
+                log_entry["row_number"] = record.row_number
             return json.dumps(log_entry, ensure_ascii=False)
     
     formatter = JsonFormatter()
@@ -71,8 +94,8 @@ else:
     class TextFormatter(logging.Formatter):
         def format(self, record):
             log_message = super().format(record)
-            if hasattr(record, 'task_id'):
-                log_message = f"[task_{record.task_id}] {log_message}"
+            if hasattr(record, 'row_number') and record.row_number is not None:
+                log_message = f"[task_{record.row_number}] {log_message}"
             return log_message
     
     formatter = TextFormatter("%(asctime)s [%(levelname)s] %(message)s")
@@ -96,8 +119,13 @@ file_handler = RotatingFileHandler(
     encoding='utf-8'
 )
 file_handler.setFormatter(formatter)
+# 添加过滤器到文件处理器
+file_handler.addFilter(RowContextFilter())
+
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
+# 为控制台添加专门的过滤器，只显示任务级别日志
+console_handler.addFilter(ConsoleFilter())
 
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
@@ -105,8 +133,10 @@ root_logger.addHandler(console_handler)
 logger = logging.getLogger(__name__)
 
 # 任务日志工厂
-def task_logger_factory(task_id):
-    return LoggerAdapter(logger, {'task_id': task_id})
+def task_logger_factory(row_number):
+    # 设置上下文变量
+    row_context_var.set(row_number)
+    return LoggerAdapter(logger, {'row_number': row_number})
 
 # 全局变量，用于存储任务日志记录器工厂函数
 _task_logger_factory = None
@@ -122,12 +152,12 @@ def set_logger(logger):
     global _logger
     _logger = logger
 
-def get_task_logger(task_id):
+def get_task_logger(row_number):
     """获取任务日志记录器"""
     if _task_logger_factory:
-        return _task_logger_factory(task_id)
+        return _task_logger_factory(row_number)
     else:
-        return task_logger_factory(task_id)
+        return task_logger_factory(row_number)
 
 # 初始化 Ollama 客户端，传递logger
 # ollama_client = create_ollama_client_from_config(config)
@@ -143,8 +173,8 @@ def get_ollama_client():
     return ollama_client
 
 # 修改 call_ollama_model 函数以使用延迟初始化的 Ollama 客户端
-def call_ollama_model(input_text, task_id):
-    task_logger = get_task_logger(task_id)
+def call_ollama_model(input_text, row_number):
+    task_logger = get_task_logger(row_number)
     task_logger.debug({"event": "ollama_input", "input": input_text})
 
     # 使用延迟初始化的 Ollama 客户端
@@ -154,14 +184,14 @@ def call_ollama_model(input_text, task_id):
         system_prompt=SYSTEM_PROMPT,
         temperature=0.0,
         num_predict=500,
-        task_id=task_id
+        task_id=f"task_{row_number}"  # 为了兼容旧接口
     )
 
     if not success:
         error_msg = metadata.get('error', 'Unknown error')
         task_logger.warning({"event": "ollama_call_failed", "error": error_msg})
         return [{
-            "序号": int(task_id.split('_')[1]),
+            "序号": row_number,
             "输入内容": input_text,
             "原始路径": clean_excel_string(f"<调用失败: {error_msg}>"),
             "文件名": clean_excel_string("<无文件名>"),
@@ -219,7 +249,7 @@ def call_ollama_model(input_text, task_id):
             "original_response_snippet": result_text[:500]  # 记录更多上下文
         })
         return [{
-            "序号": int(task_id.split('_')[1]),
+            "序号": row_number,
             "输入内容": input_text,
             "原始路径": clean_excel_string(f"<JSON解析失败: {str(e)[:100]}>"),
             "文件名": clean_excel_string("<无文件名>"),
@@ -229,24 +259,25 @@ def call_ollama_model(input_text, task_id):
 
     final_outputs = []
     if isinstance(data, list):
-        for item in data:
+        for i, item in enumerate(data, 1):  # 从1开始编号
             if isinstance(item, dict):
                 path = clean_excel_string(item.get("path", "<无路径>"))
                 filename = clean_excel_string(item.get("filename", "<无文件名>"))
                 typ = clean_excel_string(item.get("type", "未知"))
                 app = clean_excel_string(item.get("app", "<无>"))
                 
-                # 记录每个提取的路径信息
+                # 记录每个提取的路径信息，使用ollamaN格式
                 task_logger.debug({
                     "event": "extracted_path", 
                     "path": path, 
                     "filename": filename, 
                     "type": typ, 
-                    "app": app
+                    "app": app,
+                    "ollama_id": f"ollama{i}"
                 })
                 
                 final_outputs.append({
-                    "序号": int(task_id.split('_')[1]),
+                    "序号": row_number,
                     "输入内容": input_text,
                     "原始路径": path,
                     "文件名": filename,
@@ -259,17 +290,18 @@ def call_ollama_model(input_text, task_id):
         typ = clean_excel_string(data.get("type", "未知"))
         app = clean_excel_string(data.get("app", "<无>"))
         
-        # 记录提取的路径信息
+        # 记录提取的路径信息，使用ollama1格式（单个结果）
         task_logger.debug({
             "event": "extracted_path", 
             "path": path, 
             "filename": filename, 
             "type": typ, 
-            "app": app
+            "app": app,
+            "ollama_id": "ollama1"
         })
         
         final_outputs.append({
-            "序号": int(task_id.split('_')[1]),
+            "序号": row_number,
             "输入内容": input_text,
             "原始路径": path,
             "文件名": filename,
@@ -392,7 +424,7 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
 
     # 直接将清理后的内容交给 Ollama
     desc = "请从以下安全告警内容中提取所有程序路径、文件名，并分类输出：\n" + input_text
-    parsed_results = call_ollama_model(desc, f"task_{original_index}")
+    parsed_results = call_ollama_model(desc, original_index)
 
     return {"type": "processed", "outputs": parsed_results}
 

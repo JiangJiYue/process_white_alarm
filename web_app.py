@@ -4,6 +4,7 @@ import json
 import yaml
 import shutil
 import logging
+import contextvars
 from datetime import datetime
 from pathlib import Path
 from functools import wraps
@@ -410,6 +411,25 @@ def process_task_async(task_id, max_rows_override=None):
         log_filename = log_file_template.replace("{log_dir}", log_dir).replace("{timestamp}", timestamp).replace("{task_id}", task_id)
         log_filepath = os.path.join(log_dir, os.path.basename(log_filename))  # 确保文件在log_dir目录下
         
+        # 创建上下文变量来存储当前行号
+        row_context_var = contextvars.ContextVar('row_number', default=None)
+
+        # 自定义日志过滤器，用于添加行号前缀
+        class RowContextFilter(logging.Filter):
+            def filter(self, record):
+                row_number = row_context_var.get()
+                if row_number is not None:
+                    record.row_number = row_number
+                else:
+                    record.row_number = None
+                return True
+
+        # 控制台过滤器，只允许任务级别日志通过
+        class ConsoleFilter(logging.Filter):
+            def filter(self, record):
+                # 只允许没有row_number的记录通过（即任务级别日志）
+                return not hasattr(record, 'row_number') or record.row_number is None
+
         # 配置日志格式
         LOG_LEVEL = getattr(logging, config["logging"]["level"].upper())
         LOG_FORMAT = config["logging"].get("format", "text")  # 默认为文本格式
@@ -423,8 +443,8 @@ def process_task_async(task_id, max_rows_override=None):
                         "level": record.levelname,
                         "message": record.getMessage()
                     }
-                    if hasattr(record, 'task_id'):
-                        log_entry["task_id"] = record.task_id
+                    if hasattr(record, 'row_number') and record.row_number is not None:
+                        log_entry["row_number"] = record.row_number
                     return json.dumps(log_entry, ensure_ascii=False)
             
             formatter = JsonFormatter()
@@ -433,8 +453,8 @@ def process_task_async(task_id, max_rows_override=None):
             class TextFormatter(logging.Formatter):
                 def format(self, record):
                     log_message = super().format(record)
-                    if hasattr(record, 'task_id'):
-                        log_message = f"[task_{record.task_id}] {log_message}"
+                    if hasattr(record, 'row_number') and record.row_number is not None:
+                        log_message = f"[task_{record.row_number}] {log_message}"
                     return log_message
             
             # 使用与process_white_alarm.py相同的格式
@@ -459,18 +479,25 @@ def process_task_async(task_id, max_rows_override=None):
             encoding='utf-8'
         )
         file_handler.setFormatter(formatter)
+        # 添加过滤器到文件处理器
+        file_handler.addFilter(RowContextFilter())
+        
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
+        # 为控制台添加专门的过滤器，只显示任务级别日志
+        console_handler.addFilter(ConsoleFilter())
         
         task_logger.addHandler(file_handler)
         task_logger.addHandler(console_handler)
         
         # 立即写入一条日志，确保文件不为空
-        task_logger.info(f"[序号{int(task_id.split('_')[1])}] 开始处理任务 {task_id}")
+        task_logger.info(f"[序号{task_id.split('_')[1]}] 开始处理任务 {task_id}")
         
         # 创建任务日志适配器工厂，用于传递给 process_white_alarm 模块
-        def task_logger_factory(task_id):
-            return LoggerAdapter(task_logger, {'task_id': task_id})
+        def task_logger_factory(row_number):
+            # 设置上下文变量
+            row_context_var.set(row_number)
+            return LoggerAdapter(task_logger, {'row_number': row_number})
         
         # 将任务日志记录器传递给 process_row 函数
         import process_white_alarm
@@ -501,20 +528,20 @@ def process_task_async(task_id, max_rows_override=None):
                         "输入内容": str(result["row"])
                     })
                 elif result["type"] == "processed":
-                    for output in result["outputs"]:
+                    for i, output in enumerate(result["outputs"], 1):  # 从1开始编号
                         raw_path = output["原始路径"]
                         is_valid = is_valid_path(raw_path, allow_filename_only=True)
-                        task_logger.debug(f"[序号{int(task_id.split('_')[1])}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
+                        task_logger.debug(f"[ollama{i}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
                         else:
                             invalid_records.append(output)
-                            task_logger.debug(f"[序号{int(task_id.split('_')[1])}] 添加无效记录: {repr(raw_path)}")
+                            task_logger.debug(f"[ollama{i}] 添加无效记录: {repr(raw_path)}")
                 
                 # 更新进度
                 update_task_progress(task_id, idx + 1, total_rows, 'processing')
             except Exception as e:
-                task_logger.error(f"[序号{int(task_id.split('_')[1])}] 处理行 {idx} 时出错: {e}", exc_info=True)
+                task_logger.error(f"[序号{idx + 1}] 处理行 {idx} 时出错: {e}", exc_info=True)
                 invalid_records.append({
                     "序号": idx + 1,
                     "原始路径": f"<处理出错: {str(e)}>",
@@ -547,7 +574,7 @@ def process_task_async(task_id, max_rows_override=None):
         update_task_progress(task_id, total_rows, total_rows, 'completed')
         
         # 记录任务完成日志
-        task_logger.info(f"[序号{int(task_id.split('_')[1])}] 任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
+        task_logger.info(f"[序号{task_id.split('_')[1]}] 任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
         
         # 保存任务状态
         tasks = load_tasks()  # 重新加载任务以防在处理过程中有更新

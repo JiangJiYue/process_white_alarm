@@ -2,6 +2,7 @@ import httpx
 import time
 import re
 import logging
+import contextvars
 from typing import List, Dict, Any, Tuple
 
 
@@ -27,6 +28,12 @@ class OllamaClient:
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.logger = logger or logging.getLogger(__name__)
+        # 获取行号上下文变量（如果已在其他地方定义）
+        try:
+            self.row_context_var = contextvars.ContextVar('row_number')
+        except LookupError:
+            # 如果上下文变量未定义，将在使用时动态获取
+            self.row_context_var = None
 
     def clean_model_output(self, text: str) -> str:
         """
@@ -70,7 +77,23 @@ class OllamaClient:
         
         for attempt in range(self.max_retries + 1):
             try:
-                self.logger.info(f"调用 Ollama 模型（第 {attempt + 1} 次尝试）", extra={'task_id': task_id} if task_id else {})
+                # 获取行号上下文（如果可用）
+                row_number = None
+                if hasattr(self, 'row_context_var') and self.row_context_var:
+                    try:
+                        row_number = self.row_context_var.get()
+                    except LookupError:
+                        pass
+                elif task_id and task_id.startswith('task_'):
+                    # 从task_id中提取行号（向后兼容）
+                    try:
+                        row_number = int(task_id.split('_')[1])
+                    except (IndexError, ValueError):
+                        pass
+                
+                extra_data = {'row_number': row_number} if row_number else {}
+                
+                self.logger.info(f"调用 Ollama 模型（第 {attempt + 1} 次尝试）", extra=extra_data)
 
                 with httpx.Client(timeout=self.timeout_seconds) as client:
                     response = client.post(self.url, json=payload)
@@ -79,9 +102,9 @@ class OllamaClient:
                     raw_response = response.json()
                     result_text = raw_response.get("response", "").strip()
 
-                    self.logger.debug(f"[原始模型响应]: {repr(result_text)}", extra={'task_id': task_id} if task_id else {})
+                    self.logger.debug(f"[原始模型响应]: {repr(result_text)}", extra=extra_data)
                     cleaned_text = self.clean_model_output(result_text)
-                    self.logger.debug(f"[清理后响应]: {repr(cleaned_text)}", extra={'task_id': task_id} if task_id else {})
+                    self.logger.debug(f"[清理后响应]: {repr(cleaned_text)}", extra=extra_data)
                     
                     # 计算耗时
                     elapsed_time = (time.time() - start_time)  # 转换为秒
@@ -93,11 +116,27 @@ class OllamaClient:
                         "elapsed_time_s": elapsed_time
                     }
 
-                    self.logger.info(f"模型调用成功，耗时: {elapsed_time:.2f}s", extra={'task_id': task_id} if task_id else {})
+                    self.logger.info(f"模型调用成功，耗时: {elapsed_time:.2f}s", extra=extra_data)
                     return True, cleaned_text, metadata
 
             except httpx.TimeoutException as e:
-                self.logger.warning(f"⏱️ Ollama 超时 (尝试 {attempt + 1}/{self.max_retries + 1}): {e}", extra={'task_id': task_id} if task_id else {}, exc_info=True)
+                # 获取行号上下文（如果可用）
+                row_number = None
+                if hasattr(self, 'row_context_var') and self.row_context_var:
+                    try:
+                        row_number = self.row_context_var.get()
+                    except LookupError:
+                        pass
+                elif task_id and task_id.startswith('task_'):
+                    # 从task_id中提取行号（向后兼容）
+                    try:
+                        row_number = int(task_id.split('_')[1])
+                    except (IndexError, ValueError):
+                        pass
+                
+                extra_data = {'row_number': row_number} if row_number else {}
+                
+                self.logger.warning(f"⏱️ Ollama 超时 (尝试 {attempt + 1}/{self.max_retries + 1}): {e}", extra=extra_data, exc_info=True)
                 if attempt < self.max_retries:
                     time.sleep(5 * (attempt + 1))
                 else:
@@ -106,11 +145,27 @@ class OllamaClient:
                         "success": False,
                         "error": f"Timeout after {self.max_retries + 1} attempts: {str(e)}"
                     }
-                    self.logger.error(f"Ollama 调用最终超时: {metadata['error']}", extra={'task_id': task_id} if task_id else {})
+                    self.logger.error(f"Ollama 调用最终超时: {metadata['error']}", extra=extra_data)
                     return False, "", metadata
 
             except Exception as e:
-                self.logger.error(f"💥 调用异常: {e}", extra={'task_id': task_id} if task_id else {}, exc_info=True)
+                # 获取行号上下文（如果可用）
+                row_number = None
+                if hasattr(self, 'row_context_var') and self.row_context_var:
+                    try:
+                        row_number = self.row_context_var.get()
+                    except LookupError:
+                        pass
+                elif task_id and task_id.startswith('task_'):
+                    # 从task_id中提取行号（向后兼容）
+                    try:
+                        row_number = int(task_id.split('_')[1])
+                    except (IndexError, ValueError):
+                        pass
+                
+                extra_data = {'row_number': row_number} if row_number else {}
+                
+                self.logger.error(f"💥 调用异常: {e}", extra=extra_data, exc_info=True)
                 metadata = {
                     "attempt_count": attempt + 1,
                     "success": False,
