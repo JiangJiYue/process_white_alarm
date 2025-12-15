@@ -10,6 +10,12 @@
     <a href="{{ url_for('task_detail', task_id=task.id) }}" class="btn btn-primary">返回任务详情</a>
 </div>
 
+{% if task.selected_columns %}
+<div class="alert alert-info">
+    <strong>提示：</strong>仅显示您选择的列：{{ task.selected_columns | join(', ') }}
+</div>
+{% endif %}
+
 <div class="table-responsive">
     <table class="table table-striped table-hover">
         <thead>

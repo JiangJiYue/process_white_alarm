@@ -320,6 +320,15 @@ def preview_file(task_id):
         
         # 只取前10行
         preview_df = df.head(10)
+        
+        # 如果用户选择了特定的列，则只显示这些列
+        selected_columns = task.get('selected_columns', [])
+        if selected_columns:
+            # 确保选择的列在DataFrame中存在
+            existing_columns = [col for col in selected_columns if col in preview_df.columns]
+            if existing_columns:
+                preview_df = preview_df[existing_columns]
+        
         columns = preview_df.columns.tolist()
         rows = preview_df.values.tolist()
         
