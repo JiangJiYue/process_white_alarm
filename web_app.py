@@ -530,8 +530,11 @@ def process_task_async(task_id, max_rows_override=None):
         
         for idx, row in df.iterrows():
             try:
+                # 获取当前行的日志记录器
+                row_logger = task_logger_factory(idx + 1)
+                
                 # 记录开始处理某一行
-                task_logger.debug(f"开始处理第{idx + 1}行数据")
+                row_logger.debug(f"开始处理第{idx + 1}行数据")
                 
                 # 传递用户选择的列信息
                 result = process_row(
@@ -541,7 +544,7 @@ def process_task_async(task_id, max_rows_override=None):
                     ignored_columns=task.get('ignored_columns')
                 )
                 if result["type"] == "no_path_found":
-                    task_logger.debug(f"[task_{idx + 1}] 行数据未提取到任何路径")
+                    row_logger.debug(f"行数据未提取到任何路径")
                     invalid_records.append({
                         "序号": idx + 1,
                         "原始路径": "<原始行未提取到任何路径>",
@@ -554,20 +557,22 @@ def process_task_async(task_id, max_rows_override=None):
                     for i, output in enumerate(result["outputs"], 1):  # 从1开始编号
                         raw_path = output["原始路径"]
                         is_valid = is_valid_path(raw_path, allow_filename_only=True)
-                        task_logger.debug(f"[ollama{i}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
+                        row_logger.debug(f"[ollama{i}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
                         else:
                             invalid_records.append(output)
-                            task_logger.debug(f"[ollama{i}] 添加无效记录: {repr(raw_path)}")
+                            row_logger.debug(f"[ollama{i}] 添加无效记录: {repr(raw_path)}")
                 
                 # 记录完成处理某一行
-                task_logger.debug(f"第{idx + 1}行数据处理完成")
+                row_logger.debug(f"第{idx + 1}行数据处理完成")
                 
                 # 更新进度
                 update_task_progress(task_id, idx + 1, total_rows, 'processing')
             except Exception as e:
-                task_logger.error(f"[task_{idx + 1}] 处理行 {idx} 时出错: {e}", exc_info=True)
+                # 获取当前行的日志记录器
+                row_logger = task_logger_factory(idx + 1)
+                row_logger.error(f"处理行 {idx} 时出错: {e}", exc_info=True)
                 invalid_records.append({
                     "序号": idx + 1,
                     "原始路径": f"<处理出错: {str(e)}>",
