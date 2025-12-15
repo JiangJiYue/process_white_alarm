@@ -34,7 +34,10 @@
                     <p class="card-text">请选择需要忽略的列（这些列必须是上面已选择的列的子集）</p>
                 </div>
                 <div class="card-body">
-                    <div id="ignored-columns-container" data-ignored-columns="{{ task.ignored_columns | tojson | forceescape }}">
+                    <div id="ignored-columns-container" 
+                         data-ignored-columns="{{ task.ignored_columns | tojson | forceescape }}"
+                         data-selected-columns="{{ task.selected_columns | tojson | forceescape }}"
+                         data-filter-samples="{{ task.filter_samples | default([]) | tojson | forceescape }}">
                         {% for column in task.selected_columns %}
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="ignored_columns" value="{{ column }}" id="ignored_{{ loop.index }}"
@@ -44,6 +47,13 @@
                             </label>
                         </div>
                         {% endfor %}
+                        
+                        <!-- 添加手动输入过滤条件示例的区域 -->
+                        <div id="manual-filter-input" style="display: none; margin-top: 15px;">
+                            <label for="filter_examples" class="form-label">手动输入过滤条件示例（用于解析键值对，多个示例用逗号分隔）：</label>
+                            <textarea class="form-control" id="filter_examples" name="filter_examples" rows="3" 
+                                      placeholder="例如: 数据源 = &quot;EDR&quot; and 命令行 = &quot;powershell -enc ...&quot;, 组织机构 = &quot;安全中心&quot; and 时间戳 = &quot;2025-12-01 10:00:00&quot;"></textarea>
+                        </div>
                         
                         {% if not task.selected_columns %}
                         <p class="text-muted">请先在左侧选择输入列</p>
@@ -79,6 +89,43 @@
 
 {% block scripts %}
 <script>
+// 解析过滤条件中的键值对
+function parseFilterConditions(filterStr) {
+    if (typeof filterStr !== 'string') {
+        return [];
+    }
+    
+    // 先按 "and" 分割各个条件
+    const conditions = filterStr.split(/\s+and\s+/);
+    
+    const keys = [];
+    // 为每个条件匹配键值对
+    for (const condition of conditions) {
+        const pattern = /^([^=]+?)\s*=\s*("[^"]*"|'[^']*'|\S+)/;
+        const match = condition.match(pattern);
+        if (match) {
+            const key = match[1].trim();
+            keys.push(key);
+        }
+    }
+    
+    return keys;
+}
+
+// 从多个过滤条件示例中提取所有唯一的键
+function extractUniqueFilterKeys(filterSamples) {
+    const allKeys = new Set();
+    
+    if (Array.isArray(filterSamples)) {
+        filterSamples.forEach(sample => {
+            const keys = parseFilterConditions(String(sample));
+            keys.forEach(key => allKeys.add(key));
+        });
+    }
+    
+    return Array.from(allKeys);
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // 获取所有输入列的复选框
     const columnCheckboxes = document.querySelectorAll('.column-checkbox');
@@ -97,16 +144,71 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 获取忽略列容器
         const container = document.getElementById('ignored-columns-container');
+        const manualInputDiv = document.getElementById('manual-filter-input');
+        const filterExamplesTextarea = document.getElementById('filter_examples');
         
-        // 获取之前选中的忽略列
+        // 获取之前选中的忽略列和过滤条件示例
         const ignoredColumnsData = JSON.parse(container.getAttribute('data-ignored-columns') || '[]');
+        let filterSamples = JSON.parse(container.getAttribute('data-filter-samples') || '[]');
         
         // 清空容器
         container.innerHTML = '';
         
         // 如果有选中的输入列，则显示忽略列选项
         if (selectedColumns.length > 0) {
-            selectedColumns.forEach(function(column, index) {
+            // 检查是否选择了"过滤条件"列
+            const hasFilterColumn = selectedColumns.includes("过滤条件");
+            
+            // 如果选择了"过滤条件"列，显示手动输入区域
+            if (hasFilterColumn) {
+                manualInputDiv.style.display = 'block';
+                
+                // 如果用户在文本框中输入了内容，则使用用户输入的内容
+                const userInput = filterExamplesTextarea.value.trim();
+                if (userInput) {
+                    filterSamples = userInput.split(',').map(s => s.trim());
+                }
+            } else {
+                manualInputDiv.style.display = 'none';
+            }
+            
+            // 收集所有可忽略的项（包括普通列名和过滤条件中的键）
+            const ignorableItems = [];
+            
+            selectedColumns.forEach(function(column) {
+                if (column === "过滤条件") {
+                    // 特殊处理过滤条件列，解析其中的键值对
+                    const filterKeys = extractUniqueFilterKeys(filterSamples);
+                    
+                    if (filterKeys.length > 0) {
+                        // 添加过滤条件中的键
+                        filterKeys.forEach(key => {
+                            ignorableItems.push({
+                                value: key,
+                                label: `过滤条件: ${key}`,
+                                isFilterKey: true
+                            });
+                        });
+                    } else {
+                        // 如果无法解析键值对，将整个列作为可选项
+                        ignorableItems.push({
+                            value: column,
+                            label: column,
+                            isFilterKey: false
+                        });
+                    }
+                } else {
+                    // 普通列
+                    ignorableItems.push({
+                        value: column,
+                        label: column,
+                        isFilterKey: false
+                    });
+                }
+            });
+            
+            // 为每个可忽略项创建复选框
+            ignorableItems.forEach(function(item, index) {
                 const div = document.createElement('div');
                 div.className = 'form-check';
                 
@@ -114,18 +216,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 input.className = 'form-check-input';
                 input.type = 'checkbox';
                 input.name = 'ignored_columns';
-                input.value = column;
+                input.value = item.value;
                 input.id = 'ignored_' + index;
                 
                 // 检查是否应该选中（如果该列之前被选为忽略列）
-                if (ignoredColumnsData && ignoredColumnsData.includes(column)) {
+                if (ignoredColumnsData && ignoredColumnsData.includes(item.value)) {
                     input.checked = true;
                 }
                 
                 const label = document.createElement('label');
                 label.className = 'form-check-label';
                 label.htmlFor = 'ignored_' + index;
-                label.textContent = column;
+                label.textContent = item.label;
                 
                 div.appendChild(input);
                 div.appendChild(label);
@@ -137,8 +239,18 @@ document.addEventListener('DOMContentLoaded', function() {
             p.className = 'text-muted';
             p.textContent = '请先在左侧选择输入列';
             container.appendChild(p);
+            manualInputDiv.style.display = 'none';
         }
     }
+    
+    // 监听文本框输入事件，实时更新忽略列选项
+    const filterExamplesTextarea = document.getElementById('filter_examples');
+    if (filterExamplesTextarea) {
+        filterExamplesTextarea.addEventListener('input', updateIgnoredColumns);
+    }
+    
+    // 初始化时更新一次忽略列
+    updateIgnoredColumns();
 });
 </script>
 {% endblock %}
