@@ -31,33 +31,23 @@
             <div class="card">
                 <div class="card-header">
                     <h5>选择忽略列</h5>
-                    <p class="card-text">请选择需要忽略的列（这些列必须是上面已选择的列的子集）</p>
+                    <p class="card-text">请输入需要忽略的列名，多个列名用逗号分隔</p>
                 </div>
                 <div class="card-body">
-                    <div id="ignored-columns-container" 
-                         data-ignored-columns="{{ task.ignored_columns | tojson | forceescape }}"
-                         data-selected-columns="{{ task.selected_columns | tojson | forceescape }}"
-                         data-filter-samples="{{ task.filter_samples | default([]) | tojson | forceescape }}">
-                        {% for column in task.selected_columns %}
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="ignored_columns" value="{{ column }}" id="ignored_{{ loop.index }}"
-                                   {% if column in task.ignored_columns %}checked{% endif %}>
-                            <label class="form-check-label" for="ignored_{{ loop.index }}">
-                                {{ column }}
-                            </label>
-                        </div>
-                        {% endfor %}
-                        
-                        <!-- 添加手动输入过滤条件示例的区域 -->
-                        <div id="manual-filter-input" style="display: none; margin-top: 15px;">
-                            <label for="filter_examples" class="form-label">手动输入过滤条件示例（用于解析键值对，多个示例用逗号分隔）：</label>
-                            <textarea class="form-control" id="filter_examples" name="filter_examples" rows="3" 
-                                      placeholder="例如: 数据源 = &quot;EDR&quot; and 命令行 = &quot;powershell -enc ...&quot;, 组织机构 = &quot;安全中心&quot; and 时间戳 = &quot;2025-12-01 10:00:00&quot;"></textarea>
-                        </div>
-                        
-                        {% if not task.selected_columns %}
-                        <p class="text-muted">请先在左侧选择输入列</p>
-                        {% endif %}
+                    <div class="mb-3">
+                        <label for="ignored_columns_input" class="form-label">忽略列（多个列名用逗号分隔）：</label>
+                        <input type="text" class="form-control" id="ignored_columns_input" name="ignored_columns_input" 
+                               value="{{ task.ignored_columns | join(',') if task.ignored_columns else '' }}"
+                               placeholder="例如: 数据源,组织机构,时间戳">
+                    </div>
+                    
+                    <div class="form-text">
+                        <p class="mb-1"><strong>使用说明：</strong></p>
+                        <ul class="mb-0">
+                            <li>如果选择了"过滤条件"列，可以输入其中的键名来忽略特定键值对</li>
+                            <li>例如过滤条件内容为：<code>数据源 = "EDR" and 命令行 = "..."</code></li>
+                            <li>可输入：<code>数据源</code> 来忽略"数据源"键值对</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -144,6 +134,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 获取忽略列容器
         const container = document.getElementById('ignored-columns-container');
+        if (!container) return;
+        
         const manualInputDiv = document.getElementById('manual-filter-input');
         const filterExamplesTextarea = document.getElementById('filter_examples');
         
@@ -152,7 +144,9 @@ document.addEventListener('DOMContentLoaded', function() {
         let filterSamples = JSON.parse(container.getAttribute('data-filter-samples') || '[]');
         
         // 清空容器
-        container.innerHTML = '';
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
         
         // 如果有选中的输入列，则显示忽略列选项
         if (selectedColumns.length > 0) {
@@ -160,15 +154,17 @@ document.addEventListener('DOMContentLoaded', function() {
             const hasFilterColumn = selectedColumns.includes("过滤条件");
             
             // 如果选择了"过滤条件"列，显示手动输入区域
-            if (hasFilterColumn) {
+            if (hasFilterColumn && manualInputDiv) {
                 manualInputDiv.style.display = 'block';
                 
                 // 如果用户在文本框中输入了内容，则使用用户输入的内容
-                const userInput = filterExamplesTextarea.value.trim();
-                if (userInput) {
-                    filterSamples = userInput.split(',').map(s => s.trim());
+                if (filterExamplesTextarea) {
+                    const userInput = filterExamplesTextarea.value.trim();
+                    if (userInput) {
+                        filterSamples = userInput.split(',').map(s => s.trim());
+                    }
                 }
-            } else {
+            } else if (manualInputDiv) {
                 manualInputDiv.style.display = 'none';
             }
             
@@ -239,7 +235,9 @@ document.addEventListener('DOMContentLoaded', function() {
             p.className = 'text-muted';
             p.textContent = '请先在左侧选择输入列';
             container.appendChild(p);
-            manualInputDiv.style.display = 'none';
+            if (manualInputDiv) {
+                manualInputDiv.style.display = 'none';
+            }
         }
     }
     

@@ -232,6 +232,17 @@ def upload_file():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             
+            # 读取文件以获取列信息
+            try:
+                if filename.endswith('.xlsx'):
+                    df = pd.read_excel(filepath)
+                else:
+                    df = pd.read_excel(filepath, engine='xlrd')
+                columns = df.columns.tolist()
+            except Exception as e:
+                flash(f'无法读取文件列信息: {str(e)}', 'error')
+                return redirect(request.url)
+            
             # 保存任务信息
             task_id = f"task_{int(datetime.now().timestamp())}"
             # 先加载现有的任务
@@ -242,20 +253,54 @@ def upload_file():
                 'filepath': filepath,
                 'status': 'uploaded',
                 'created_at': datetime.now().isoformat(),
-                'output_dir': None
+                'output_dir': None,
+                'columns': columns,  # 保存列信息
+                'selected_columns': [],  # 用户选择的列
+                'ignored_columns': []   # 用户忽略的列
             }
             
             # 保存任务到文件
             save_tasks(tasks)
             
             flash(f'文件上传成功，任务ID: {task_id}', 'success')
-            return redirect(url_for('task_detail', task_id=task_id))
+            return redirect(url_for('column_selection', task_id=task_id))
         else:
             flash('不支持的文件格式，请上传Excel文件(.xlsx, .xls)', 'error')
     
     # GET 请求时，加载并显示任务列表
     tasks = load_tasks()
     return render_template('upload.html', tasks=tasks)
+
+
+@app.route('/select-columns/<task_id>', methods=['GET', 'POST'])
+def column_selection(task_id):
+    """列选择页面"""
+    tasks = load_tasks()
+    if task_id not in tasks:
+        flash('任务不存在', 'error')
+        return redirect(url_for('upload_file'))
+    
+    task = tasks[task_id]
+    
+    if request.method == 'POST':
+        # 获取用户选择的列
+        selected_columns = request.form.getlist('selected_columns')
+        # 获取用户输入的忽略列
+        ignored_columns_input = request.form.get('ignored_columns_input', '')
+        ignored_columns = [col.strip() for col in ignored_columns_input.split(',') if col.strip()]
+        
+        # 更新任务信息
+        task['selected_columns'] = selected_columns
+        task['ignored_columns'] = ignored_columns
+        
+        # 保存任务
+        save_tasks(tasks)
+        
+        flash('列选择已保存', 'success')
+        return redirect(url_for('task_detail', task_id=task_id))
+    
+    return render_template('column_selection.html', task=task)
+
 
 @app.route('/preview/<task_id>')
 def preview_file(task_id):
@@ -432,7 +477,13 @@ def process_task_async(task_id, max_rows_override=None):
         
         for idx, row in df.iterrows():
             try:
-                result = process_row(row, idx)
+                # 传递用户选择的列信息
+                result = process_row(
+                    row, 
+                    idx, 
+                    selected_columns=task.get('selected_columns'), 
+                    ignored_columns=task.get('ignored_columns')
+                )
                 if result["type"] == "no_path_found":
                     invalid_records.append({
                         "序号": idx + 1,
