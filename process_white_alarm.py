@@ -358,10 +358,7 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
                     input_text = raw_filter
                 else:
                     # 从配置中读取需要忽略的列
-                    ignored_columns = config.get("processing", {}).get("ignored_columns", [])
-                    # 如果ignored_columns为None，将其设置为空列表
-                    if ignored_columns is None:
-                        ignored_columns = []
+                    ignored_columns = []
                     
                     # 构建parts，排除被忽略的键
                     parts = []
@@ -377,10 +374,7 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
             if not input_text.strip():
                 parts = []
                 # 从配置中读取需要忽略的列，如果配置为空则不忽略任何列
-                ignored_columns = config.get("processing", {}).get("ignored_columns", [])
-                # 如果ignored_columns为None，将其设置为空列表
-                if ignored_columns is None:
-                    ignored_columns = []
+                ignored_columns = []
                 for col, val in row_dict.items():
                     if col in ignored_columns:
                         continue

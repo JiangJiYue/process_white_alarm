@@ -45,8 +45,8 @@
             </div>
             <div class="mb-3">
                 <label for="max_rows_to_process" class="form-label">最大处理行数</label>
-                <input type="number" class="form-control" id="max_rows_to_process" name="max_rows_to_process" value="{{ config.processing.max_rows_to_process if config.processing.max_rows_to_process else '' }}">
-                <div class="form-text">留空表示处理所有行</div>
+                <input type="number" class="form-control" id="max_rows_to_process" name="max_rows_to_process" value="{{ config.processing.max_rows_to_process if config.processing.max_rows_to_process is not none else '' }}">
+                <div class="form-text">留空则全部处理</div>
             </div>
             
             <h4>日志配置</h4>

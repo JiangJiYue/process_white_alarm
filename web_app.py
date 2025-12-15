@@ -188,13 +188,6 @@ def config_page():
             max_rows = request.form.get('max_rows_to_process', '')
             config['processing']['max_rows_to_process'] = int(max_rows) if max_rows else None
             
-            # 更新忽略的列配置
-            ignored_columns_str = request.form.get('ignored_columns', '')
-            if ignored_columns_str:
-                config['processing']['ignored_columns'] = [col.strip() for col in ignored_columns_str.split(',') if col.strip()]
-            else:
-                config['processing']['ignored_columns'] = []
-            
             # 更新日志配置
             config['logging']['level'] = request.form.get('log_level', config['logging']['level'])
             config['logging']['format'] = request.form.get('log_format', config['logging']['format'])
