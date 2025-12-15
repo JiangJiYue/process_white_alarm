@@ -34,8 +34,6 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # 替换占位符生成日志文件路径
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-LOG_FILE = LOG_FILE_TEMPLATE.replace("{log_dir}", LOG_DIR).replace("{timestamp}", timestamp).replace("{task_id}", "standalone")
-
 # 注意：standalone模式已被弃用，不会再生成standalone_*.log文件
 # 所有日志现在都在Web应用中通过任务ID进行管理
 
@@ -55,81 +53,8 @@ SYSTEM_PROMPT = config["system_prompt"].rstrip()
 # 创建输出目录
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 创建上下文变量来存储当前行号
-row_context_var = contextvars.ContextVar('row_number', default=None)
-
-# 自定义日志过滤器，用于添加行号前缀
-class RowContextFilter(logging.Filter):
-    def filter(self, record):
-        row_number = row_context_var.get()
-        if row_number is not None:
-            record.row_number = row_number
-        else:
-            record.row_number = None
-        return True
-
-# 控制台过滤器，只允许任务级别日志通过
-class ConsoleFilter(logging.Filter):
-    def filter(self, record):
-        # 只允许没有row_number的记录通过（即任务级别日志）
-        return not hasattr(record, 'row_number') or record.row_number is None
-
-# 配置日志格式
-if LOG_FORMAT == "json":
-    # JSON格式日志
-    class JsonFormatter(logging.Formatter):
-        def format(self, record):
-            log_entry = {
-                "timestamp": self.formatTime(record),
-                "level": record.levelname,
-                "message": record.getMessage()
-            }
-            if hasattr(record, 'row_number') and record.row_number is not None:
-                log_entry["row_number"] = record.row_number
-            return json.dumps(log_entry, ensure_ascii=False)
-    
-    formatter = JsonFormatter()
-else:
-    # 文本格式日志
-    class TextFormatter(logging.Formatter):
-        def format(self, record):
-            log_message = super().format(record)
-            if hasattr(record, 'row_number') and record.row_number is not None:
-                log_message = f"[task_{record.row_number}] {log_message}"
-            return log_message
-    
-    formatter = TextFormatter("%(asctime)s [%(levelname)s] %(message)s")
-
-# 配置根日志记录器
-root_logger = logging.getLogger()
-root_logger.setLevel(LOG_LEVEL)
-
-# 移除现有的处理器
-for handler in root_logger.handlers[:]:
-    root_logger.removeHandler(handler)
-    handler.close()
-
-# 添加新的处理器
-# 使用 RotatingFileHandler 实现日志轮转
-from logging.handlers import RotatingFileHandler
-file_handler = RotatingFileHandler(
-    LOG_FILE, 
-    maxBytes=10*1024*1024,  # 10MB
-    backupCount=20,
-    encoding='utf-8'
-)
-file_handler.setFormatter(formatter)
-# 添加过滤器到文件处理器
-file_handler.addFilter(RowContextFilter())
-
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-# 为控制台添加专门的过滤器，只显示任务级别日志
-console_handler.addFilter(ConsoleFilter())
-
-root_logger.addHandler(file_handler)
-root_logger.addHandler(console_handler)
-
+# 移除旧的根日志记录器配置，避免生成standalone日志文件
+# 所有日志现在都在Web应用中通过任务ID进行管理
 logger = logging.getLogger(__name__)
 
 # 任务日志工厂
@@ -157,7 +82,8 @@ def get_task_logger(row_number):
     if _task_logger_factory:
         return _task_logger_factory(row_number)
     else:
-        return task_logger_factory(row_number)
+        # 如果没有设置工厂函数，返回一个空的日志记录器
+        return logging.getLogger("dummy")
 
 # 初始化 Ollama 客户端，传递logger
 # ollama_client = create_ollama_client_from_config(config)
@@ -267,14 +193,14 @@ def call_ollama_model(input_text, row_number):
                 app = clean_excel_string(item.get("app", "<无>"))
                 
                 # 记录每个提取的路径信息，使用ollamaN格式
-                task_logger.debug({
-                    "event": "extracted_path", 
-                    "path": path, 
-                    "filename": filename, 
-                    "type": typ, 
-                    "app": app,
-                    "ollama_id": f"ollama{i}"
-                })
+                # task_logger.debug({
+                #     "event": "extracted_path", 
+                #     "path": path, 
+                #     "filename": filename, 
+                #     "type": typ, 
+                #     "app": app,
+                #     "ollama_id": f"ollama{i}"
+                # })
                 
                 final_outputs.append({
                     "序号": row_number,
@@ -291,14 +217,14 @@ def call_ollama_model(input_text, row_number):
         app = clean_excel_string(data.get("app", "<无>"))
         
         # 记录提取的路径信息，使用ollama1格式（单个结果）
-        task_logger.debug({
-            "event": "extracted_path", 
-            "path": path, 
-            "filename": filename, 
-            "type": typ, 
-            "app": app,
-            "ollama_id": "ollama1"
-        })
+        # task_logger.debug({
+        #     "event": "extracted_path", 
+        #     "path": path, 
+        #     "filename": filename, 
+        #     "type": typ, 
+        #     "app": app,
+        #     "ollama_id": "ollama1"
+        # })
         
         final_outputs.append({
             "序号": row_number,
@@ -309,7 +235,7 @@ def call_ollama_model(input_text, row_number):
             "应用名称": app
         })
 
-    task_logger.debug({"event": "ollama_processed", "count": len(final_outputs)})
+    # task_logger.debug({"event": "ollama_processed", "count": len(final_outputs)})
     return final_outputs
 
 
@@ -343,88 +269,53 @@ def process_row(row, idx, selected_columns=None, ignored_columns=None):
     original_index = idx + 1
     row_dict = row.to_dict()
 
+    # 获取任务特定的日志记录器
+    task_logger = get_task_logger(original_index)
+
     input_text = ""
 
     # 如果用户指定了选择的列，则使用用户指定的列
     if selected_columns is not None and len(selected_columns) > 0:
         parts = []
-        # 处理忽略的列
-        actual_ignored_columns = ignored_columns if ignored_columns is not None else []
-        
         # 只使用用户选定的列
         for col in selected_columns:
-            if col in actual_ignored_columns:
-                continue
             val = row_dict.get(col)
             if pd.notna(val) and str(val).strip():
-                # 特殊处理"过滤条件"列，解析其中的键值对
-                if col == "过滤条件":
-                    filter_dict = parse_filter_conditions(str(val))
-                    # 检查是否有解析出的键值对
-                    if not filter_dict:
-                        # 如果没有解析出键值对，将原始内容作为普通列处理
-                        logger.warning(f"过滤条件列内容未能解析为键值对格式 (序号{original_index}): {repr(str(val))}")
-                        parts.append(f"{col} = {str(val).strip()}")
-                    else:
-                        # 从解析出的键值对中移除被忽略的键
-                        for filter_key, filter_val in filter_dict.items():
-                            if filter_key in actual_ignored_columns:
-                                continue
-                            parts.append(f"{filter_key} = {filter_val}")
+                # 检查是否整个列被忽略
+                if col in ignored_columns:
+                    task_logger.debug(f"[task_{original_index}] 列 '{col}' 被用户忽略，跳过处理")
+                    continue
+                # 处理所有列
+                # 如果有需要忽略的键值对，尝试解析并过滤
+                filtered_val = str(val).strip()
+                if ignored_columns:
+                    # 尝试解析当前列是否为键值对格式，如果是则过滤
+                    filtered_val = filter_ignored_keys_from_filter_condition(str(val).strip(), ignored_columns)
+                
+                # 如果过滤后还有内容则添加
+                if filtered_val:
+                    parts.append(filtered_val)
+                    # task_logger.debug(f"添加列 '{col}' 的内容: {repr(filtered_val)}")
                 else:
-                    parts.append(f"{col} = {str(val).strip()}")
+                    task_logger.debug(f"列 '{col}' 过滤后无内容，跳过添加")
         
         input_text = " ; ".join(parts)
-        logger.debug(f"使用用户选择的列拼接 (序号{original_index}): {repr(input_text)}")
+        task_logger.debug(f"最终拼接的输入文本: {repr(input_text)}")
     else:
-        # 优先使用 "过滤条件" 列（如果存在且非空）
-        if "过滤条件" in row_dict and pd.notna(row_dict["过滤条件"]):
-            raw_filter = str(row_dict["过滤条件"]).strip()
-            if raw_filter:
-                # 解析过滤条件中的键值对
-                filter_dict = parse_filter_conditions(raw_filter)
-                # 检查是否有解析出的键值对
-                if not filter_dict:
-                    # 如果没有解析出键值对，将原始内容作为普通列处理
-                    logger.warning(f"过滤条件列内容未能解析为键值对格式 (序号{original_index}): {repr(raw_filter)}")
-                    input_text = raw_filter
-                else:
-                    # 从配置中读取需要忽略的列
-                    ignored_columns = []
-                    
-                    # 构建parts，排除被忽略的键
-                    parts = []
-                    for filter_key, filter_val in filter_dict.items():
-                        if filter_key in ignored_columns:
-                            continue
-                        parts.append(f"{filter_key} = {filter_val}")
-                    
-                    input_text = " ; ".join(parts)
-                    logger.debug(f"解析后的过滤条件 (序号{original_index}): {repr(input_text)}")
-        else:
-            # 如果没有过滤条件，或清理后为空，则拼接整行（跳过组织机构和数据源）
-            if not input_text.strip():
-                parts = []
-                # 从配置中读取需要忽略的列，如果配置为空则不忽略任何列
-                ignored_columns = []
-                for col, val in row_dict.items():
-                    if col in ignored_columns:
-                        continue
-                    if pd.notna(val) and str(val).strip():
-                        parts.append(f"{col} = {str(val).strip()}")
-                input_text = " ; ".join(parts)
-                logger.debug(f"使用整行拼接 (序号{original_index}): {repr(input_text)}")
-
-    # 如果最终 input_text 仍为空，则标记为无路径
-    if not input_text.strip():
+        # 如果用户没有在页面上选择特定的列，则返回错误提示，要求用户至少选择一列
+        task_logger.debug(f"用户未选择任何列，无法处理")
         return {
             "type": "no_path_found",
-            "row": row_dict
+            "row": row_dict,
+            "error": "用户未选择任何列，请至少选择一列进行处理"
         }
-
+        
     # 直接将清理后的内容交给 Ollama
     desc = "请从以下安全告警内容中提取所有程序路径、文件名，并分类输出：\n" + input_text
+    # task_logger.debug(f"发送请求到 Ollama: {repr(desc)}")
     parsed_results = call_ollama_model(desc, original_index)
+    
+    task_logger.debug(f"Ollama 处理完成，返回结果数: {len(parsed_results)}")
 
     return {"type": "processed", "outputs": parsed_results}
 
@@ -490,3 +381,41 @@ def clean_excel_string(value):
     if isinstance(value, str):
         return value.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     return value
+
+
+def filter_ignored_keys_from_filter_condition(filter_str, ignored_columns):
+    """
+    从过滤条件字符串中移除被忽略的键值对
+    
+    Args:
+        filter_str (str): 原始过滤条件字符串
+        ignored_columns (list): 要忽略的列名列表
+        
+    Returns:
+        str: 过滤后的字符串，如果全部被过滤则返回空字符串
+    """
+    if not isinstance(filter_str, str) or not ignored_columns:
+        return filter_str
+    
+    # 先按 "and" 分割各个条件
+    conditions = re.split(r'\s+and\s+', filter_str)
+    
+    # 存储未被忽略的条件
+    remaining_conditions = []
+    
+    # 检查每个条件
+    for condition in conditions:
+        # 匹配 "key = value" 格式
+        pattern = r'^([^=]+?)\s*=\s*("[^"]*"|\'[^\']*\'|\S+)'
+        match = re.match(pattern, condition.strip())
+        if match:
+            key = match.group(1).strip()
+            # 如果键不在忽略列表中，则保留该条件
+            if key not in ignored_columns:
+                remaining_conditions.append(condition)
+        else:
+            # 如果不匹配key=value格式，保留原样
+            remaining_conditions.append(condition)
+    
+    # 重新组合条件
+    return " and ".join(remaining_conditions) if remaining_conditions else ""

@@ -63,6 +63,26 @@ def cleanup_tasks_on_startup():
             if task.get('status') == 'completed':
                 cleaned_tasks[task_id] = task
             else:
+                # 删除未完成任务的相关文件
+                try:
+                    # 删除输出目录（如果存在）
+                    if task.get('output_dir') and os.path.exists(task['output_dir']):
+                        shutil.rmtree(task['output_dir'])
+                    
+                    # 删除日志文件（如果存在）
+                    config = load_config()
+                    log_dir = config.get('logging', {}).get('log_dir', 'logs')
+                    
+                    # 查找并删除匹配的任务日志文件
+                    if os.path.exists(log_dir):
+                        for filename in os.listdir(log_dir):
+                            if filename.startswith(f"{task_id}_") and filename.endswith(".log"):
+                                log_filepath = os.path.join(log_dir, filename)
+                                if os.path.exists(log_filepath):
+                                    os.remove(log_filepath)
+                except Exception as e:
+                    print(f"清理任务 {task_id} 的文件时出错: {e}")
+                
                 removed_count += 1
         
         # 如果有任务被移除，则保存清理后的任务列表
@@ -246,7 +266,7 @@ def upload_file():
                 'filename': filename,
                 'filepath': filepath,
                 'status': 'uploaded',
-                'created_at': datetime.now().isoformat(),
+                'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'output_dir': None,
                 'columns': columns,  # 保存列信息
                 'selected_columns': [],  # 用户选择的列
@@ -362,15 +382,14 @@ def process_task_async(task_id, max_rows_override=None):
         
         # 使用配置文件中的输出目录，如果未设置则使用默认值
         output_base_dir = config.get('output_dir', 'results')
-        # 创建基于时间戳的唯一输出目录
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(output_base_dir, f"run_{timestamp}")
+        # 创建基于任务ID的唯一输出目录，确保与任务ID一致
+        output_dir = os.path.join(output_base_dir, task_id)
         os.makedirs(output_dir, exist_ok=True)
         task['output_dir'] = output_dir
         
         # 更新任务状态
         task['status'] = 'processing'
-        task['started_at'] = datetime.now().isoformat()
+        task['started_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_task_progress(task_id, 0, 0, 'processing')
         
         # 保存任务状态
@@ -424,12 +443,12 @@ def process_task_async(task_id, max_rows_override=None):
                     record.row_number = None
                 return True
 
-        # 控制台过滤器，只允许任务级别日志通过
+        # 控制台过滤器，只允许Web服务器日志通过，阻止任务处理日志
         class ConsoleFilter(logging.Filter):
             def filter(self, record):
-                # 只允许没有row_number的记录通过（即任务级别日志）
-                return not hasattr(record, 'row_number') or record.row_number is None
-
+                # 阻止所有带有row_number属性的日志输出到控制台
+                return not hasattr(record, 'row_number')
+        
         # 配置日志格式
         LOG_LEVEL = getattr(logging, config["logging"]["level"].upper())
         LOG_FORMAT = config["logging"].get("format", "text")  # 默认为文本格式
@@ -491,7 +510,7 @@ def process_task_async(task_id, max_rows_override=None):
         task_logger.addHandler(console_handler)
         
         # 立即写入一条日志，确保文件不为空
-        task_logger.info(f"[序号{task_id.split('_')[1]}] 开始处理任务 {task_id}")
+        task_logger.info(f"[task_{task_id.split('_')[1]}] 开始处理任务 {task_id}")
         
         # 创建任务日志适配器工厂，用于传递给 process_white_alarm 模块
         def task_logger_factory(row_number):
@@ -511,6 +530,9 @@ def process_task_async(task_id, max_rows_override=None):
         
         for idx, row in df.iterrows():
             try:
+                # 记录开始处理某一行
+                task_logger.debug(f"开始处理第{idx + 1}行数据")
+                
                 # 传递用户选择的列信息
                 result = process_row(
                     row, 
@@ -519,6 +541,7 @@ def process_task_async(task_id, max_rows_override=None):
                     ignored_columns=task.get('ignored_columns')
                 )
                 if result["type"] == "no_path_found":
+                    task_logger.debug(f"[task_{idx + 1}] 行数据未提取到任何路径")
                     invalid_records.append({
                         "序号": idx + 1,
                         "原始路径": "<原始行未提取到任何路径>",
@@ -538,10 +561,13 @@ def process_task_async(task_id, max_rows_override=None):
                             invalid_records.append(output)
                             task_logger.debug(f"[ollama{i}] 添加无效记录: {repr(raw_path)}")
                 
+                # 记录完成处理某一行
+                task_logger.debug(f"第{idx + 1}行数据处理完成")
+                
                 # 更新进度
                 update_task_progress(task_id, idx + 1, total_rows, 'processing')
             except Exception as e:
-                task_logger.error(f"[序号{idx + 1}] 处理行 {idx} 时出错: {e}", exc_info=True)
+                task_logger.error(f"[task_{idx + 1}] 处理行 {idx} 时出错: {e}", exc_info=True)
                 invalid_records.append({
                     "序号": idx + 1,
                     "原始路径": f"<处理出错: {str(e)}>",
@@ -568,13 +594,13 @@ def process_task_async(task_id, max_rows_override=None):
         
         # 更新任务状态
         task['status'] = 'completed'
-        task['completed_at'] = datetime.now().isoformat()
+        task['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         task['valid_count'] = len(valid_results)
         task['invalid_count'] = len(invalid_records)
         update_task_progress(task_id, total_rows, total_rows, 'completed')
         
         # 记录任务完成日志
-        task_logger.info(f"[序号{task_id.split('_')[1]}] 任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
+        task_logger.info(f"[task_{task_id.split('_')[1]}] 任务 {task_id} 处理完成，有效结果: {len(valid_results)}, 无效记录: {len(invalid_records)}")
         
         # 保存任务状态
         tasks = load_tasks()  # 重新加载任务以防在处理过程中有更新
@@ -722,13 +748,12 @@ def api_process():
             'filename': filename,
             'filepath': filepath,
             'status': 'processing',
-            'created_at': datetime.now().isoformat(),
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'output_dir': None
         }
         
-      
         tasks[task_id]['status'] = 'completed'
-        tasks[task_id]['completed_at'] = datetime.now().isoformat()
+        tasks[task_id]['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         tasks[task_id]['valid_count'] = 0
         tasks[task_id]['invalid_count'] = 0
         
