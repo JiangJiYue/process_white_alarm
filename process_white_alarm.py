@@ -281,34 +281,101 @@ def call_ollama_model(input_text, task_id):
     return final_outputs
 
 
-def process_row(row, idx):
+def parse_filter_conditions(filter_str):
+    """
+    解析过滤条件字符串中的键值对
+    例如: '数据源 = "EDR" and 命令行 = "powershell -enc ..."' 
+    返回: {'数据源': 'EDR', '命令行': 'powershell -enc ...'}
+    """
+    if not isinstance(filter_str, str):
+        return {}
+    
+    # 先按 "and" 分割各个条件
+    conditions = re.split(r'\s+and\s+', filter_str)
+    
+    result = {}
+    # 为每个条件匹配键值对
+    for condition in conditions:
+        pattern = r'([^=]+?)\s*=\s*("[^"]*"|\'[^\']*\'|\S+)'
+        match = re.match(pattern, condition)
+        if match:
+            key, value = match.groups()
+            # 清理键和值
+            clean_key = key.strip()
+            clean_value = value.strip().strip('"\'')
+            result[clean_key] = clean_value
+    
+    return result
+
+def process_row(row, idx, selected_columns=None, ignored_columns=None):
     original_index = idx + 1
     row_dict = row.to_dict()
 
     input_text = ""
 
-    # 优先使用 "过滤条件" 列（如果存在且非空）
-    if "过滤条件" in row_dict and pd.notna(row_dict["过滤条件"]):
-        raw_filter = str(row_dict["过滤条件"]).strip()
-        if raw_filter:
-            input_text = clean_filter_string(raw_filter)
-            logger.debug(f"清理后的过滤条件 (序号{original_index}): {repr(input_text)}")
-
-    # 如果没有过滤条件，或清理后为空，则拼接整行（跳过组织机构和数据源）
-    if not input_text.strip():
+    # 如果用户指定了选择的列，则使用用户指定的列
+    if selected_columns is not None and len(selected_columns) > 0:
         parts = []
-        # 从配置中读取需要忽略的列，如果配置为空则不忽略任何列
-        ignored_columns = config.get("processing", {}).get("ignored_columns", [])
-        # 如果ignored_columns为None，将其设置为空列表
-        if ignored_columns is None:
-            ignored_columns = []
-        for col, val in row_dict.items():
-            if col in ignored_columns:
+        # 处理忽略的列
+        actual_ignored_columns = ignored_columns if ignored_columns is not None else []
+        
+        # 只使用用户选定的列
+        for col in selected_columns:
+            if col in actual_ignored_columns:
                 continue
+            val = row_dict.get(col)
             if pd.notna(val) and str(val).strip():
-                parts.append(f"{col} = {str(val).strip()}")
+                # 特殊处理"过滤条件"列，解析其中的键值对
+                if col == "过滤条件":
+                    filter_dict = parse_filter_conditions(str(val))
+                    # 从解析出的键值对中移除被忽略的键
+                    for filter_key, filter_val in filter_dict.items():
+                        if filter_key in actual_ignored_columns:
+                            continue
+                        parts.append(f"{filter_key} = {filter_val}")
+                else:
+                    parts.append(f"{col} = {str(val).strip()}")
+        
         input_text = " ; ".join(parts)
-        logger.debug(f"使用整行拼接 (序号{original_index}): {repr(input_text)}")
+        logger.debug(f"使用用户选择的列拼接 (序号{original_index}): {repr(input_text)}")
+    else:
+        # 优先使用 "过滤条件" 列（如果存在且非空）
+        if "过滤条件" in row_dict and pd.notna(row_dict["过滤条件"]):
+            raw_filter = str(row_dict["过滤条件"]).strip()
+            if raw_filter:
+                # 解析过滤条件中的键值对
+                filter_dict = parse_filter_conditions(raw_filter)
+                # 从配置中读取需要忽略的列
+                ignored_columns = config.get("processing", {}).get("ignored_columns", [])
+                # 如果ignored_columns为None，将其设置为空列表
+                if ignored_columns is None:
+                    ignored_columns = []
+                
+                # 构建parts，排除被忽略的键
+                parts = []
+                for filter_key, filter_val in filter_dict.items():
+                    if filter_key in ignored_columns:
+                        continue
+                    parts.append(f"{filter_key} = {filter_val}")
+                
+                input_text = " ; ".join(parts)
+                logger.debug(f"解析后的过滤条件 (序号{original_index}): {repr(input_text)}")
+        else:
+            # 如果没有过滤条件，或清理后为空，则拼接整行（跳过组织机构和数据源）
+            if not input_text.strip():
+                parts = []
+                # 从配置中读取需要忽略的列，如果配置为空则不忽略任何列
+                ignored_columns = config.get("processing", {}).get("ignored_columns", [])
+                # 如果ignored_columns为None，将其设置为空列表
+                if ignored_columns is None:
+                    ignored_columns = []
+                for col, val in row_dict.items():
+                    if col in ignored_columns:
+                        continue
+                    if pd.notna(val) and str(val).strip():
+                        parts.append(f"{col} = {str(val).strip()}")
+                input_text = " ; ".join(parts)
+                logger.debug(f"使用整行拼接 (序号{original_index}): {repr(input_text)}")
 
     # 如果最终 input_text 仍为空，则标记为无路径
     if not input_text.strip():
@@ -318,7 +385,7 @@ def process_row(row, idx):
         }
 
     # 直接将清理后的内容交给 Ollama
-    desc = "请从以下安全告警内容中提取所有可疑程序路径、文件名，并分类输出：\n" + input_text
+    desc = "请从以下安全告警内容中提取所有程序路径、文件名，并分类输出：\n" + input_text
     parsed_results = call_ollama_model(desc, f"task_{original_index}")
 
     return {"type": "processed", "outputs": parsed_results}
