@@ -109,7 +109,7 @@ def call_ollama_model(input_text, row_number):
         prompt=input_text,
         system_prompt=SYSTEM_PROMPT,
         temperature=0.0,
-        num_predict=500,
+        num_predict=OLLAMA_CONFIG.get('num_predict', 500),  # 使用配置文件中的num_predict值，默认为500
         task_id=f"task_{row_number}"  # 为了兼容旧接口
     )
 
@@ -149,13 +149,21 @@ def call_ollama_model(input_text, row_number):
         # 如果找不到开始符号，尝试从第一个字母开始找对象或数组
         cleaned_text = cleaned_text.lstrip()
     
-    # 4. 尝试从后往前找到结束符号，确保 JSON 完整
-    # （防止 Ollama 截断响应）
-    last_brace = cleaned_text.rfind('}')
-    last_bracket = cleaned_text.rfind(']')
-    end_pos = max(last_brace, last_bracket)
-    if end_pos != -1:
-        cleaned_text = cleaned_text[:end_pos + 1]
+    # 4. 确保 JSON 完整性
+    # 检查开头是否为合法的JSON开始符
+    if cleaned_text.startswith(('{', '[')):
+        # 尝试从后往前找到结束符号
+        last_brace = cleaned_text.rfind('}')
+        last_bracket = cleaned_text.rfind(']')
+        end_pos = max(last_brace, last_bracket)
+        
+        # 确保结束符存在且位置合理
+        if end_pos != -1 and end_pos > 0:
+            # 根据开头符号确定应该查找的结束符号
+            if cleaned_text.startswith('{') and cleaned_text[end_pos] == '}':
+                cleaned_text = cleaned_text[:end_pos + 1]
+            elif cleaned_text.startswith('[') and cleaned_text[end_pos] == ']':
+                cleaned_text = cleaned_text[:end_pos + 1]
     
     cleaned_text = cleaned_text.strip()
     
@@ -164,7 +172,16 @@ def call_ollama_model(input_text, row_number):
     
     # --- END JSON 清洗 ---
 
+    # 增强的JSON解析逻辑
     try:
+        # 在解析前检查基本完整性
+        if not cleaned_text:
+            raise ValueError("Cleaned response is empty")
+        
+        # 检查是否以合法的JSON开始和结束字符开头和结尾
+        if not (cleaned_text.startswith(('{', '[')) and cleaned_text.endswith(('}', ']'))):
+            raise ValueError("Response doesn't start/end with valid JSON delimiters")
+        
         data = json.loads(cleaned_text)
     except json.JSONDecodeError as e:
         # 如果还是失败，记录更详细的调试信息
@@ -178,6 +195,22 @@ def call_ollama_model(input_text, row_number):
             "序号": row_number,
             "输入内容": input_text,
             "原始路径": clean_excel_string(f"<JSON解析失败: {str(e)[:100]}>"),
+            "文件名": clean_excel_string("<无文件名>"),
+            "类型": "未知",
+            "应用名称": clean_excel_string("<无>")
+        }]
+    except ValueError as e:
+        # 处理自定义验证错误
+        task_logger.warning({
+            "event": "json_validation_failed",
+            "error": str(e),
+            "cleaned_response": repr(cleaned_text),
+            "original_response_snippet": result_text[:500]
+        })
+        return [{
+            "序号": row_number,
+            "输入内容": input_text,
+            "原始路径": clean_excel_string(f"<JSON验证失败: {str(e)[:100]}>"),
             "文件名": clean_excel_string("<无文件名>"),
             "类型": "未知",
             "应用名称": clean_excel_string("<无>")

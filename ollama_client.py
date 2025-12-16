@@ -34,6 +34,9 @@ class OllamaClient:
         except LookupError:
             # 如果上下文变量未定义，将在使用时动态获取
             self.row_context_var = None
+            
+        # 添加format属性，默认为空
+        self.format = ""
 
     def clean_model_output(self, text: str) -> str:
         """
@@ -71,6 +74,10 @@ class OllamaClient:
                 "num_predict": num_predict
             }
         }
+        
+        # 如果配置了format参数，则添加到payload中
+        if hasattr(self, 'format') and self.format:
+            payload["format"] = self.format
 
         # 记录开始时间
         start_time = time.time()
@@ -206,13 +213,19 @@ def create_ollama_client_from_config(config: Dict[str, Any], logger=None) -> Oll
         OllamaClient 实例
     """
     ollama_config = config["ollama"]
-    return OllamaClient(
+    client = OllamaClient(
         url=ollama_config["url"],
         model_name=ollama_config["model_name"],
         timeout_seconds=ollama_config.get("timeout_seconds", 30),
         max_retries=ollama_config.get("max_retries", 3),
         logger=logger
     )
+    
+    # 设置format参数
+    if "format" in ollama_config:
+        client.format = ollama_config["format"]
+        
+    return client
 
 
 def test_ollama_connection(client: OllamaClient) -> bool:
@@ -236,55 +249,3 @@ def test_ollama_connection(client: OllamaClient) -> bool:
     except Exception as e:
         print(f"❌ Ollama 连接测试异常: {e}")
         return False
-
-
-# 示例使用方法
-if __name__ == "__main__":
-    # 示例配置
-    sample_config = {
-        "ollama": {
-            "url": "http://localhost:11434/api/generate",
-            "model_name": "qwen2.5:7b",
-            "timeout_seconds": 30,
-            "max_retries": 3
-        }
-    }
-
-    # 创建客户端
-    client = create_ollama_client_from_config(sample_config)
-
-    # 测试连接
-    if test_ollama_connection(client):
-        # 单次调用示例
-        success, response, metadata = client.call_model(
-            prompt="请列举3个常见的编程语言",
-            system_prompt="你是一个编程专家",
-            temperature=0.1,
-            num_predict=100
-        )
-
-        if success:
-            print(f"模型响应: {response}")
-        else:
-            print(f"调用失败: {metadata['error']}")
-
-        # 批量调用示例
-        prompts = [
-            "什么是Python?",
-            "JavaScript的主要用途是什么?",
-            "Java的特点有哪些?"
-        ]
-
-        results = client.batch_call(
-            prompts=prompts,
-            system_prompt="你是一个编程语言专家",
-            temperature=0.2
-        )
-
-        for i, (success, response, metadata) in enumerate(results):
-            if success:
-                print(f"问题{i + 1}响应: {response[:100]}...")
-            else:
-                print(f"问题{i + 1}失败: {metadata['error']}")
-    else:
-        print("Ollama 连接测试失败，无法继续执行测试")

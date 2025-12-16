@@ -25,6 +25,19 @@
                 <label for="ollama_max_retries" class="form-label">最大重试次数</label>
                 <input type="number" class="form-control" id="ollama_max_retries" name="ollama_max_retries" value="{{ config.ollama.max_retries }}">
             </div>
+            <div class="mb-3">
+                <label for="ollama_num_predict" class="form-label">最大预测token数 (num_predict)</label>
+                <input type="number" class="form-control" id="ollama_num_predict" name="ollama_num_predict" value="{{ config.ollama.num_predict | default(500) }}">
+                <div class="form-text">控制模型输出的最大长度。当模型输出被截断导致JSON解析失败时，可以适当增大该值。</div>
+            </div>
+            <div class="mb-3">
+                <label for="ollama_format" class="form-label">输出格式 (format)</label>
+                <select class="form-control" id="ollama_format" name="ollama_format">
+                    <option value="">默认</option>
+                    <option value="json" {% if config.ollama.format == 'json' %}selected{% endif %}>JSON</option>
+                </select>
+                <div class="form-text">强制模型以指定格式输出。选择"JSON"可提高JSON解析成功率。</div>
+            </div>
             
             <h4>Web 应用配置</h4>
             <div class="mb-3">

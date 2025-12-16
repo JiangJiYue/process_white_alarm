@@ -195,6 +195,10 @@ def config_page():
             config['ollama']['model_name'] = request.form.get('ollama_model_name', config['ollama']['model_name'])
             config['ollama']['timeout_seconds'] = int(request.form.get('ollama_timeout', config['ollama']['timeout_seconds']))
             config['ollama']['max_retries'] = int(request.form.get('ollama_max_retries', config['ollama']['max_retries']))
+            # 添加num_predict参数
+            config['ollama']['num_predict'] = int(request.form.get('ollama_num_predict', config['ollama'].get('num_predict', 500)))
+            # 添加format参数
+            config['ollama']['format'] = request.form.get('ollama_format', config['ollama'].get('format', '')).strip()
             
             # 更新Web应用配置
             if 'web' not in config:
