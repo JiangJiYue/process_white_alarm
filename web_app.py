@@ -19,7 +19,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 
 # 导入现有模块
-from process_white_alarm import process_row, is_valid_path
+from white_alarm_processor import WhiteAlarmProcessor
+from config import get_config
 
 def load_config():
     """加载配置文件"""
@@ -516,17 +517,15 @@ def process_task_async(task_id, max_rows_override=None):
         # 立即写入一条日志，确保文件不为空
         task_logger.info(f"[task_{task_id.split('_')[1]}] 开始处理任务 {task_id}")
         
-        # 创建任务日志适配器工厂，用于传递给 process_white_alarm 模块
+        # 创建任务日志适配器工厂
         def task_logger_factory(row_number):
             # 设置上下文变量
             row_context_var.set(row_number)
             return LoggerAdapter(task_logger, {'row_number': row_number})
         
-        # 将任务日志记录器传递给 process_row 函数
-        import process_white_alarm
-        process_white_alarm.set_task_logger_factory(task_logger_factory)
-        # 同时传递日志记录器给process_white_alarm模块
-        process_white_alarm.set_logger(task_logger)
+        # 创建WhiteAlarmProcessor实例
+        config_manager = get_config()
+        processor = WhiteAlarmProcessor(config_manager, task_logger)
         
         # 处理过程
         valid_results = []
@@ -541,11 +540,12 @@ def process_task_async(task_id, max_rows_override=None):
                 row_logger.debug(f"开始处理第{idx + 1}行数据")
                 
                 # 传递用户选择的列信息
-                result = process_row(
+                result = processor.process_row(
                     row, 
                     idx, 
                     selected_columns=task.get('selected_columns'), 
-                    ignored_columns=task.get('ignored_columns')
+                    ignored_columns=task.get('ignored_columns'),
+                    task_logger=row_logger
                 )
                 if result["type"] == "no_path_found":
                     row_logger.debug(f"行数据未提取到任何路径")
@@ -560,7 +560,7 @@ def process_task_async(task_id, max_rows_override=None):
                 elif result["type"] == "processed":
                     for i, output in enumerate(result["outputs"], 1):  # 从1开始编号
                         raw_path = output["原始路径"]
-                        is_valid = is_valid_path(raw_path, allow_filename_only=True)
+                        is_valid = processor.is_valid_path(raw_path, allow_filename_only=True)
                         row_logger.debug(f"[ollama{i}] 路径验证结果: {repr(raw_path)} -> {'有效' if is_valid else '无效'}")
                         if is_valid:
                             valid_results.append(output)
