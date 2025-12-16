@@ -846,4 +846,4 @@ def get_task_log(task_id):
         return jsonify({'status': 'error', 'message': f'读取日志文件失败: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000)

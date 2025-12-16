@@ -116,7 +116,8 @@ graph TD
 process_white_alarm/
 ├── config.yaml              # 系统配置文件
 ├── web_app.py               # Web应用主程序
-├── process_white_alarm.py   # 核心处理逻辑
+├── white_alarm_processor.py  # 核心处理逻辑
+├── config.py                # 配置管理模块
 ├── ollama_client.py         # Ollama客户端
 ├── requirements.txt         # Python依赖列表
 ├── tasks.json               # 任务数据存储文件
@@ -164,22 +165,33 @@ process_white_alarm/
 ```yaml
 # Ollama相关配置
 ollama:
-  url: http://localhost:11434/api/generate  # Ollama API地址
-  model_name: alibayram/Qwen3-30B-A3B-Instruct-2507:latest  # 模型名称
-  timeout_seconds: 300  # 请求超时时间
-  max_retries: 2        # 最大重试次数
+  url: http://localhost:11434/api/generate                # Ollama API地址
+  model_name: alibayram/Qwen3-30B-A3B-Instruct-2507:latest  # 模型名称 可通过 ollama list查看模型名称
+  timeout_seconds: 300                                    # 请求超时时间（秒）
+  max_retries: 2                                          # 最大重试次数
+  num_predict: 1000                                       # 模型单次生成最大 token 数
+  format: json                                            # 响应格式（json/text）
 
 # 处理相关配置
 processing:
-  max_workers: 10       # 最大并发处理数
-  max_rows_to_process: null  # 最大处理行数，null表示无限制
+  max_workers: 10                                         # 最大并发处理线程数
+  max_rows_to_process: null                               # 最大处理行数，null 表示无限制
 
 # 日志相关配置
 logging:
-  format: text          # 日志格式(text/json)
-  level: DEBUG          # 日志级别
-  log_dir: logs         # 日志目录
-  log_file: '{log_dir}/{task_id}_{timestamp}.log'  # 日志文件名模板
+  format: text                                            # 日志格式（text/json）
+  level: DEBUG                                            # 日志级别（DEBUG/INFO/WARNING/ERROR）
+  log_dir: logs                                           # 日志文件存储目录
+  log_file: '{log_dir}/{task_id}_{timestamp}.log'         # 日志文件名模板，支持 task_id 和 timestamp 占位符
+
+# 输出与 Web 上传配置
+output_dir: results                                       # 处理结果输出目录
+
+web:
+  upload_folder: uploads                                # 文件上传临时目录
+  allowed_extensions:                                   # 允许上传的文件扩展名
+    - xlsx
+    - xls
 
 # 系统提示词（AI模型指令）
 system_prompt: |
