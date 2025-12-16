@@ -81,12 +81,10 @@
                 <div class="mb-2">
                     <button type="button" class="btn btn-secondary" onclick="viewLog()">查看日志</button>
                 </div>
-                <a href="{{ url_for('task_list') }}" class="btn btn-info btn-sm">查看任务管理页面</a>
                 {% elif task.status == 'failed' %}
                 <div class="alert alert-danger">
                     <strong>任务失败:</strong> <span id="error-message">{{ task.error }}</span>
                 </div>
-                <button type="button" class="btn btn-primary" onclick="processTask()">重试</button>
                 <div class="mt-2">
                     <button type="button" class="btn btn-info btn-sm" onclick="viewLog()">查看日志</button>
                 </div>

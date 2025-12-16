@@ -7,9 +7,7 @@ import logging
 import contextvars
 from datetime import datetime
 from pathlib import Path
-from functools import wraps
 from threading import Thread
-from logging import LoggerAdapter
 
 from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for, flash
 from werkzeug.utils import secure_filename
@@ -130,9 +128,6 @@ def duration_format(completed_at, started_at):
             return f"{seconds}秒"
     except Exception:
         return "未知"
-
-# 配置
-CONFIG_FILE = 'config.yaml'
 
 # 确保必要的目录存在
 def initialize_app():
@@ -374,6 +369,107 @@ def task_detail(task_id):
     task = tasks[task_id]
     return render_template('task_detail.html', task=task)
 
+def setup_task_logger(task_id, config):
+    """
+    为任务设置专用日志记录器
+
+    Args:
+        task_id: 任务ID
+        config: 配置字典
+
+    Returns:
+        tuple: (task_logger, row_context_var) - 日志记录器和上下文变量
+    """
+    # 设置日志文件
+    log_dir = config.get('logging', {}).get('log_dir', 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 使用配置文件中的日志文件模板
+    log_file_template = config["logging"].get("log_file", "{log_dir}/{task_id}_{timestamp}.log")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = log_file_template.replace("{log_dir}", log_dir).replace("{timestamp}", timestamp).replace("{task_id}", task_id)
+    log_filepath = os.path.join(log_dir, os.path.basename(log_filename))
+
+    # 创建上下文变量来存储当前行号
+    row_context_var = contextvars.ContextVar('row_number', default=None)
+
+    # 自定义日志过滤器,用于添加行号前缀
+    class RowContextFilter(logging.Filter):
+        def filter(self, record):
+            row_number = row_context_var.get()
+            if row_number is not None:
+                record.row_number = row_number
+            else:
+                record.row_number = None
+            return True
+
+    # 控制台过滤器,只允许Web服务器日志通过,阻止任务处理日志
+    class ConsoleFilter(logging.Filter):
+        def filter(self, record):
+            # 阻止所有带有row_number属性的日志输出到控制台
+            return not hasattr(record, 'row_number')
+
+    # 配置日志格式
+    LOG_LEVEL = getattr(logging, config["logging"]["level"].upper())
+    LOG_FORMAT = config["logging"].get("format", "text")
+
+    if LOG_FORMAT == "json":
+        # JSON格式日志
+        class JsonFormatter(logging.Formatter):
+            def format(self, record):
+                log_entry = {
+                    "timestamp": self.formatTime(record),
+                    "level": record.levelname,
+                    "message": record.getMessage()
+                }
+                if hasattr(record, 'row_number') and record.row_number is not None:
+                    log_entry["row_number"] = record.row_number
+                return json.dumps(log_entry, ensure_ascii=False)
+
+        formatter = JsonFormatter()
+    else:
+        # 文本格式日志
+        class TextFormatter(logging.Formatter):
+            def format(self, record):
+                log_message = super().format(record)
+                if hasattr(record, 'row_number') and record.row_number is not None:
+                    log_message = f"[task_{record.row_number}] {log_message}"
+                return log_message
+
+        formatter = TextFormatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    # 为当前任务创建专用的日志记录器
+    task_logger = logging.getLogger(f"task_{task_id}")
+    task_logger.setLevel(LOG_LEVEL)
+
+    # 移除现有的处理器
+    for handler in task_logger.handlers[:]:
+        handler.close()
+        task_logger.removeHandler(handler)
+
+    # 添加新的处理器
+    from logging.handlers import RotatingFileHandler
+    file_handler = RotatingFileHandler(
+        log_filepath,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=20,
+        encoding='utf-8'
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.addFilter(RowContextFilter())
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.addFilter(ConsoleFilter())
+
+    task_logger.addHandler(file_handler)
+    task_logger.addHandler(console_handler)
+
+    # 立即写入一条日志,确保文件不为空
+    task_logger.info(f"[task_{task_id.split('_')[1]}] 开始处理任务 {task_id}")
+
+    return task_logger, row_context_var
+
 def process_task_async(task_id, max_rows_override=None):
     """异步处理任务"""
     tasks = load_tasks()
@@ -423,104 +519,15 @@ def process_task_async(task_id, max_rows_override=None):
                 task['processed_rows'] = len(df)
             else:
                 task['processed_rows'] = total_rows
-        
-        # 设置日志文件
-        log_dir = config.get('logging', {}).get('log_dir', 'logs')
-        os.makedirs(log_dir, exist_ok=True)
-        # 使用配置文件中的日志文件模板
-        log_file_template = config["logging"].get("log_file", "{log_dir}/{task_id}_{timestamp}.log")
-        # 生成时间戳
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # 替换占位符生成日志文件路径
-        log_filename = log_file_template.replace("{log_dir}", log_dir).replace("{timestamp}", timestamp).replace("{task_id}", task_id)
-        log_filepath = os.path.join(log_dir, os.path.basename(log_filename))  # 确保文件在log_dir目录下
-        
-        # 创建上下文变量来存储当前行号
-        row_context_var = contextvars.ContextVar('row_number', default=None)
 
-        # 自定义日志过滤器，用于添加行号前缀
-        class RowContextFilter(logging.Filter):
-            def filter(self, record):
-                row_number = row_context_var.get()
-                if row_number is not None:
-                    record.row_number = row_number
-                else:
-                    record.row_number = None
-                return True
+        # 设置任务日志记录器
+        task_logger, row_context_var = setup_task_logger(task_id, config)
 
-        # 控制台过滤器，只允许Web服务器日志通过，阻止任务处理日志
-        class ConsoleFilter(logging.Filter):
-            def filter(self, record):
-                # 阻止所有带有row_number属性的日志输出到控制台
-                return not hasattr(record, 'row_number')
-        
-        # 配置日志格式
-        LOG_LEVEL = getattr(logging, config["logging"]["level"].upper())
-        LOG_FORMAT = config["logging"].get("format", "text")  # 默认为文本格式
-        
-        if LOG_FORMAT == "json":
-            # JSON格式日志
-            class JsonFormatter(logging.Formatter):
-                def format(self, record):
-                    log_entry = {
-                        "timestamp": self.formatTime(record),
-                        "level": record.levelname,
-                        "message": record.getMessage()
-                    }
-                    if hasattr(record, 'row_number') and record.row_number is not None:
-                        log_entry["row_number"] = record.row_number
-                    return json.dumps(log_entry, ensure_ascii=False)
-            
-            formatter = JsonFormatter()
-        else:
-            # 文本格式日志
-            class TextFormatter(logging.Formatter):
-                def format(self, record):
-                    log_message = super().format(record)
-                    if hasattr(record, 'row_number') and record.row_number is not None:
-                        log_message = f"[task_{record.row_number}] {log_message}"
-                    return log_message
-            
-            # 使用与process_white_alarm.py相同的格式
-            formatter = TextFormatter("%(asctime)s [%(levelname)s] %(message)s")
-        
-        # 为当前任务创建专用的日志记录器
-        task_logger = logging.getLogger(f"task_{task_id}")
-        task_logger.setLevel(LOG_LEVEL)
-        
-        # 移除现有的处理器
-        for handler in task_logger.handlers[:]:
-            handler.close()
-            task_logger.removeHandler(handler)
-        
-        # 添加新的处理器
-        # 使用 RotatingFileHandler 实现日志轮转
-        from logging.handlers import RotatingFileHandler
-        file_handler = RotatingFileHandler(
-            log_filepath, 
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=20,
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(formatter)
-        # 添加过滤器到文件处理器
-        file_handler.addFilter(RowContextFilter())
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        # 为控制台添加专门的过滤器，只显示任务级别日志
-        console_handler.addFilter(ConsoleFilter())
-        
-        task_logger.addHandler(file_handler)
-        task_logger.addHandler(console_handler)
-        
-        # 立即写入一条日志，确保文件不为空
-        task_logger.info(f"[task_{task_id.split('_')[1]}] 开始处理任务 {task_id}")
-        
         # 创建任务日志适配器工厂
         def task_logger_factory(row_number):
             # 设置上下文变量
             row_context_var.set(row_number)
+            from logging import LoggerAdapter
             return LoggerAdapter(task_logger, {'row_number': row_number})
         
         # 创建WhiteAlarmProcessor实例
@@ -740,48 +747,16 @@ def api_config():
         except Exception as e:
             return jsonify({'status': 'error', 'message': str(e)}), 400
 
-@app.route('/api/process', methods=['POST'])
-def api_process():
-    """处理任务API"""
-    try:
-        data = request.get_json()
-        filepath = data.get('filepath')
-        if not filepath or not os.path.exists(filepath):
-            return jsonify({'status': 'error', 'message': '文件不存在'}), 400
-        
-        # 创建任务
-        task_id = f"api_task_{int(datetime.now().timestamp())}"
-        filename = os.path.basename(filepath)
-        tasks[task_id] = {
-            'id': task_id,
-            'filename': filename,
-            'filepath': filepath,
-            'status': 'processing',
-            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'output_dir': None
-        }
-        
-        tasks[task_id]['status'] = 'completed'
-        tasks[task_id]['completed_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        tasks[task_id]['valid_count'] = 0
-        tasks[task_id]['invalid_count'] = 0
-        
-        return jsonify({
-            'status': 'success',
-            'task_id': task_id,
-            'message': '任务处理完成'
-        })
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
 @app.route('/api/tasks')
 def api_tasks():
     """任务列表API"""
+    tasks = load_tasks()
     return jsonify(list(tasks.values()))
 
 @app.route('/api/task/<task_id>')
 def api_task_detail(task_id):
     """任务详情API"""
+    tasks = load_tasks()
     if task_id not in tasks:
         return jsonify({'status': 'error', 'message': '任务不存在'}), 404
     return jsonify(tasks[task_id])
@@ -789,6 +764,7 @@ def api_task_detail(task_id):
 @app.route('/api/task/<task_id>/progress')
 def api_task_progress(task_id):
     """获取任务进度API"""
+    tasks = load_tasks()
     if task_id not in tasks:
         return jsonify({'status': 'error', 'message': '任务不存在'}), 404
     
@@ -828,9 +804,11 @@ def get_task_log(task_id):
             if filename.startswith(f"{task_id}_") and filename.endswith(".log"):
                 log_filename = filename
                 break
-    
 
-    
+    # 如果未找到日志文件,返回错误
+    if not log_filename:
+        return jsonify({'status': 'error', 'message': '日志文件不存在'}), 404
+
     log_filepath = os.path.join(log_dir, log_filename)
     
     # 检查文件是否存在

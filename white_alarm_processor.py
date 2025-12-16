@@ -4,8 +4,6 @@ import logging
 import os
 import json
 from pathlib import Path
-from logging import LoggerAdapter
-from datetime import datetime
 
 from ollama_client import OllamaClient, create_ollama_client_from_config
 

@@ -1,6 +1,4 @@
 import yaml
-import os
-from datetime import datetime
 
 
 class ConfigManager:
@@ -50,38 +48,11 @@ class ConfigManager:
     def get_ollama_config(self):
         """
         获取Ollama配置
-        
+
         Returns:
             dict: Ollama配置
         """
         return self.config.get("ollama", {})
-        
-    def get_processing_config(self):
-        """
-        获取处理配置
-        
-        Returns:
-            dict: 处理配置
-        """
-        return self.config.get("processing", {})
-        
-    def get_logging_config(self):
-        """
-        获取日志配置
-        
-        Returns:
-            dict: 日志配置
-        """
-        return self.config.get("logging", {})
-        
-    def get_output_dir(self):
-        """
-        获取输出目录配置
-        
-        Returns:
-            str: 输出目录路径
-        """
-        return self.config.get("output_dir", "results")
 
 
 # 全局配置管理器实例
